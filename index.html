@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Everyclass — Teachers everywhere. Learning for anyone.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F4F6FA; --surface:#FFFFFF; --ink:#1B2440; --muted:#5A6482; --line:#DCE1EC;
+  --pen:#2F5BEA; --pen-soft:#E3EAFD; --pencil:#F2B531; --pencil-soft:#FDF1D3;
+  --leaf:#2E8B6A; --leaf-soft:#DDF1E8; --rose:#C9445C; --rose-soft:#F9E0E5;
+  --shadow:0 1px 0 var(--line);
+  --display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body:"Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#121726; --surface:#1A2135; --ink:#EDF0F8; --muted:#A3ACC6; --line:#2C3550;
+    --pen:#7D9BFF; --pen-soft:#24305A; --pencil:#F5C24F; --pencil-soft:#3A3220;
+    --leaf:#5CC79F; --leaf-soft:#1D3A30; --rose:#F07A90; --rose-soft:#3D2028;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121726; --surface:#1A2135; --ink:#EDF0F8; --muted:#A3ACC6; --line:#2C3550;
+  --pen:#7D9BFF; --pen-soft:#24305A; --pencil:#F5C24F; --pencil-soft:#3A3220;
+  --leaf:#5CC79F; --leaf-soft:#1D3A30; --rose:#F07A90; --rose-soft:#3D2028;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 var(--body);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--display);line-height:1.1;margin:0 0 .4em;letter-spacing:-.01em}
+h2{font-size:clamp(1.6rem,3vw,2.2rem)} h3{font-size:1.25rem}
+p{margin:0 0 1em} a{color:var(--pen)}
+img{max-width:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--pencil);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1160px;margin:0 auto;padding:0 20px}
+.muted{color:var(--muted)} .small{font-size:.88rem}
+.btn{display:inline-flex;align-items:center;gap:8px;border:2px solid var(--ink);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-weight:700;cursor:pointer;text-decoration:none}
+.btn:hover{background:var(--pen);border-color:var(--pen);color:#fff}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--pen-soft);color:var(--ink);border-color:var(--ink)}
+.btn.sm{padding:6px 12px;font-size:.9rem}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.field{display:flex;flex-direction:column;gap:4px;font-size:.92rem}
+.field input,.field select,.field textarea{background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--pen);outline:none}
+
+/* header */
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:18px;height:64px}
+.logo{font-family:var(--display);font-weight:800;font-size:1.4rem;text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:8px}
+.logo .dot{width:22px;height:22px;border-radius:50%;background:conic-gradient(var(--pen) 0 25%,var(--pencil) 0 50%,var(--leaf) 0 75%,var(--rose) 0)}
+nav.main{display:flex;gap:4px;flex:1;overflow-x:auto}
+nav.main a{padding:8px 12px;border-radius:999px;text-decoration:none;color:var(--ink);white-space:nowrap;font-weight:700;font-size:.95rem}
+nav.main a.on{background:var(--ink);color:var(--bg)}
+.role select{border:1.5px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--surface);font-size:.9rem}
+@media (max-width:760px){.top .wrap{flex-wrap:wrap;height:auto;padding-top:10px;padding-bottom:10px}nav.main{order:3;flex-basis:100%}}
+
+/* hero */
+.hero{padding-block:56px 28px}
+.hero h1{font-size:clamp(2.6rem,7.5vw,5.6rem);font-weight:800;line-height:.95;letter-spacing:-.035em;max-width:13ch}
+.hero h1 span{display:block;color:var(--muted);font-weight:500}
+.hero .lead{font-size:1.2rem;max-width:52ch;color:var(--muted);margin:18px 0 26px}
+.hero .search{display:flex;gap:8px;flex-wrap:wrap;max-width:640px}
+.hero .search input{flex:1;min-width:200px;padding:14px 18px;border-radius:999px;border:2px solid var(--ink);background:var(--surface);font-size:1.05rem}
+.clocks{margin-top:40px;border-top:2px solid var(--ink);padding-top:16px}
+.clocks h3{font-size:1rem;font-family:var(--body);font-weight:700;margin-bottom:12px}
+.clockrow{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory}
+.clock{flex:0 0 250px;scroll-snap-align:start;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:14px;cursor:pointer;text-align:left}
+.clock:hover{border-color:var(--pen)}
+.clock .t{font-family:var(--display);font-size:1.7rem;font-weight:700}
+.clock .city{font-size:.85rem;color:var(--muted)}
+
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:28px;padding:48px 0;counter-reset:s}
+.steps div{border-left:3px solid var(--pencil);padding-left:16px}
+.steps div h3::before{counter-increment:s;content:counter(s) ". ";color:var(--pen)}
+.teachband{background:var(--ink);color:var(--bg);border-radius:24px;padding:40px;display:grid;grid-template-columns:1.3fr 1fr;gap:30px;align-items:center;margin:20px 0 56px}
+.teachband .btn{background:var(--pencil);border-color:var(--pencil);color:#1B2440}
+.teachband ul{margin:0;padding-left:20px}
+@media (max-width:760px){.teachband{grid-template-columns:1fr;padding:26px}}
+
+/* browse */
+.browse{display:grid;grid-template-columns:260px 1fr;gap:28px;padding-block:30px 60px}
+.filters{position:sticky;top:84px;align-self:start;display:flex;flex-direction:column;gap:14px}
+.filters h3{margin-bottom:0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1.5px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:.88rem;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+@media (max-width:860px){.browse{grid-template-columns:1fr}.filters{position:static}}
+.results-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.list{display:flex;flex-direction:column;gap:12px}
+.listing{display:grid;grid-template-columns:64px 1fr auto;gap:16px;background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:16px;align-items:start}
+.listing:hover{border-color:var(--ink)}
+.avatar{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:1.3rem;color:#1B2440}
+.avatar.lg{width:110px;height:110px;font-size:2.3rem}
+.listing h3{margin:0 0 2px;font-size:1.15rem}
+.listing h3 button{all:unset;cursor:pointer}
+.listing h3 button:hover{text-decoration:underline}
+.meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.88rem;color:var(--muted);margin:6px 0}
+.tag{display:inline-block;font-size:.78rem;font-weight:700;padding:2px 9px;border-radius:6px}
+.tag.private{background:var(--pen-soft);color:var(--pen)}
+.tag.group{background:var(--pencil-soft);color:#8A5F00}
+:root[data-theme="dark"] .tag.group{color:var(--pencil)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tag.group{color:var(--pencil)}}
+.price{text-align:right}
+.price b{font-family:var(--display);font-size:1.4rem;display:block}
+.next{font-size:.9rem;margin-top:4px}
+.places{font-size:.85rem;font-weight:700}
+.places.low{color:var(--rose)}
+@media (max-width:600px){.listing{grid-template-columns:48px 1fr}.listing .avatar{width:48px;height:48px;font-size:1rem}.price{grid-column:1/-1;text-align:left;display:flex;gap:12px;align-items:center;flex-wrap:wrap}}
+.empty{border:2px dashed var(--line);border-radius:16px;padding:30px;text-align:center}
+
+/* teacher profile */
+.profile{padding-block:36px 60px}
+.profile-head{display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:24px}
+.cols{display:grid;grid-template-columns:1.4fr 1fr;gap:32px}
+@media (max-width:860px){.cols{grid-template-columns:1fr}}
+.box{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:20px;margin-bottom:16px}
+.stars{color:var(--pencil);letter-spacing:2px}
+.review{border-top:1px solid var(--line);padding:12px 0}
+.review:first-of-type{border-top:0}
+
+/* modal */
+dialog{border:0;border-radius:20px;padding:0;max-width:min(620px,94vw);width:100%;background:var(--surface);color:var(--ink);box-shadow:0 20px 60px rgba(10,15,40,.35)}
+dialog::backdrop{background:rgba(15,20,40,.5)}
+.dlg{padding:24px;max-height:86vh;overflow:auto}
+.dlg-head{display:flex;justify-content:space-between;gap:12px;align-items:start}
+.x{background:none;border:0;font-size:1.6rem;cursor:pointer;line-height:1;color:var(--muted)}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:12px 0}
+.slot{border:1.5px solid var(--line);border-radius:12px;padding:10px;background:var(--bg);cursor:pointer;text-align:left}
+.slot[aria-pressed="true"]{border-color:var(--pen);background:var(--pen-soft)}
+.slot[disabled]{opacity:.4;cursor:not-allowed}
+.slot b{display:block}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.notice{background:var(--pencil-soft);border-radius:12px;padding:12px 14px;font-size:.92rem;margin:12px 0}
+.ok{background:var(--leaf-soft);border-radius:12px;padding:14px}
+.err{color:var(--rose);font-size:.9rem;min-height:1.2em}
+.linkbox{display:flex;gap:8px;align-items:center;background:var(--bg);border:1.5px dashed var(--line);border-radius:10px;padding:8px 10px;font-size:.9rem;overflow-x:auto;white-space:nowrap}
+
+/* tables / dashboard */
+.page{padding-block:32px 60px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 20px;border-bottom:2px solid var(--line)}
+.tabs button{border:0;background:none;padding:10px 14px;font-weight:700;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--muted)}
+.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--pen)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:520px;background:var(--surface);border-radius:12px;overflow:hidden}
+th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:.94rem}
+th{font-family:var(--display);font-weight:700}
+td input{width:64px;padding:5px 7px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg)}
+.week{display:grid;grid-template-columns:repeat(5,minmax(170px,1fr));gap:10px;overflow-x:auto}
+.day{background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:12px;min-height:220px;display:flex;flex-direction:column;gap:8px}
+.day h4{font-size:1rem;margin:0}
+.plan{background:var(--bg);border-left:4px solid var(--pen);border-radius:8px;padding:8px 10px;font-size:.88rem}
+.plan b{display:block}
+.plan button{all:unset;cursor:pointer;color:var(--muted);font-size:.8rem;float:right}
+.grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.res{background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px}
+.lesson{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+details{background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:8px}
+summary{font-weight:700;cursor:pointer}
+footer{border-top:1px solid var(--line);padding:28px 0;color:var(--muted);font-size:.9rem}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:999px;opacity:0;transition:.25s;z-index:50;font-weight:700}
+.toast.show{opacity:1;transform:translateX(-50%)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+[hidden]{display:none!important}
+.tag.demo{background:transparent;border:1px dashed var(--muted);color:var(--muted);font-family:var(--body);letter-spacing:.02em}
+.chip[disabled]{opacity:.45;cursor:not-allowed}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+.btn.lg{padding:14px 26px;font-size:1.1rem}
+.aud{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;padding-top:40px}
+.aud .box{margin:0;display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.aud ul{margin:0;padding-left:20px}
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:4px}
+.choice{display:flex;gap:10px;align-items:flex-start;border:2px solid var(--line);border-radius:14px;padding:14px;cursor:pointer;background:var(--bg)}
+.choice:has(input:checked){border-color:var(--pen);background:var(--pen-soft)}
+.choice b{display:block;font-family:var(--display);font-size:1.05rem}
+.choice input{margin-top:5px}
+.tag.ok{background:var(--leaf-soft);color:var(--leaf)}
+.tag.bad{background:var(--rose-soft);color:var(--rose)}
+.notice.bad{background:var(--rose-soft)}
+.admin td{vertical-align:top}
+.admin td input{width:100%;min-width:150px}
+.admin .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="#/"><span class="dot" aria-hidden="true"></span>Everyclass</a>
+    <nav class="main" aria-label="Main">
+      <a href="#/classes" data-r="classes">Find classes</a>
+      <a href="#/learning" data-r="learning">My lessons</a>
+      <a href="#/studio" data-r="studio">Teacher studio</a>
+      <a href="#/help" data-r="help">Help</a>
+    </nav>
+    <label class="role small">
+      <span class="sr">Viewing as</span>
+      <select id="role" aria-label="Viewing as">
+        <option value="learner">Learner</option>
+        <option value="parent">Parent</option>
+      </select>
+    </label>
+  </div>
+</header>
+<main id="app"></main>
+<footer><div class="wrap">Teachers, classes and reviews marked Demo are samples, not real people. Booking and payment are not open yet; nothing is charged. Times show in your time zone: <b id="tzname"></b>.</div></footer>
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---------- utilities ---------- */
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "your local time";
+const fmtDay = d => d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});
+const fmtTime = d => d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+const money = n => "$" + n.toFixed(0);
+function store(k, v){ try{ if(v===undefined){ const r=localStorage.getItem("ec:"+k); return r?JSON.parse(r):null } localStorage.setItem("ec:"+k, JSON.stringify(v)) }catch(e){ return null } }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2600) }
+const uid = () => Math.random().toString(36).slice(2,9);
+
+/* ---------- seed data ---------- */
+const TEACHERS = [
+  {id:"t1",name:"Amara Okafor",city:"Lagos",offset:1,color:"#F2B531",years:9,langs:["English","Yoruba"],subjects:["Maths"],rating:4.9,
+   intro:"I help students stop being afraid of numbers. Former secondary-school head of maths, now teaching online full time.", exp:"9 years teaching; IGCSE and A-level examiner; MSc Mathematics Education."},
+  {id:"t2",name:"Lucía Fernández",city:"Madrid",offset:2,color:"#8FB8FF",years:12,langs:["Spanish","English","Catalan"],subjects:["Spanish"],rating:4.8,
+   intro:"Conversational Spanish for every age. We talk, we play, and grammar sneaks in along the way.", exp:"12 years; DELE examiner; taught at Instituto Cervantes."},
+  {id:"t3",name:"Kenji Watanabe",city:"Osaka",offset:9,color:"#9FE0C4",years:6,langs:["Japanese","English"],subjects:["Japanese","Coding"],rating:4.9,
+   intro:"Software engineer turned teacher. I teach Japanese for beginners and Python for curious kids.", exp:"6 years teaching; built learning apps used in 40 schools."},
+  {id:"t4",name:"Priya Raman",city:"Bengaluru",offset:5.5,color:"#F4A3B4",years:15,langs:["English","Tamil","Hindi"],subjects:["Science","Maths"],rating:5.0,
+   intro:"Science should be touched, not memorised. Expect kitchen experiments and big questions.", exp:"15 years; CBSE and IB science; PhD Chemistry."},
+  {id:"t5",name:"Marc Dubois",city:"Montréal",offset:-4,color:"#C9B6FF",years:8,langs:["French","English"],subjects:["French","Music"],rating:4.7,
+   intro:"French through songs, stories and everyday conversation. Piano lessons too.", exp:"8 years; conservatory-trained pianist; DELF preparation specialist."},
+  {id:"t6",name:"Sarah Mitchell",city:"Vancouver",offset:-7,color:"#FFC98A",years:11,langs:["English"],subjects:["English","Writing"],rating:4.9,
+   intro:"Reading and writing coach for young learners and teens. Gentle, structured and fun.", exp:"11 years; certified BC teacher; reading-intervention specialist."},
+  {id:"t7",name:"Omar Haddad",city:"Amman",offset:3,color:"#A8D8EA",years:7,langs:["Arabic","English"],subjects:["Arabic"],rating:4.8,
+   intro:"Modern Standard Arabic and Levantine dialect for adults and teens.", exp:"7 years; taught at university language centres."},
+  {id:"t8",name:"Beatriz Santos",city:"São Paulo",offset:-3,color:"#B5E48C",years:10,langs:["Portuguese","English","Spanish"],subjects:["Art","Portuguese"],rating:4.9,
+   intro:"Drawing and painting for kids and adults, plus Brazilian Portuguese.", exp:"10 years; illustrator; art-school teacher."}
+];
+const CLASSES = [
+  {id:"c1",t:"t1",title:"Algebra without fear",subject:"Maths",lang:"English",type:"group",price:18,cap:6,ages:[13,17],level:"Intermediate",days:[1,3],hour:17,mins:50},
+  {id:"c2",t:"t1",title:"1:1 exam preparation (IGCSE / A-level)",subject:"Maths",lang:"English",type:"private",price:40,cap:1,ages:[14,19],level:"Advanced",days:[2,4,6],hour:15,mins:60},
+  {id:"c3",t:"t2",title:"Spanish games for little ones",subject:"Spanish",lang:"Spanish",type:"group",price:12,cap:5,ages:[5,8],level:"Beginner",days:[2,5],hour:17,mins:30},
+  {id:"c4",t:"t2",title:"Conversational Spanish for adults",subject:"Spanish",lang:"Spanish",type:"private",price:32,cap:1,ages:[18,99],level:"Intermediate",days:[1,2,3,4],hour:19,mins:50},
+  {id:"c5",t:"t3",title:"Python for curious kids",subject:"Coding",lang:"English",type:"group",price:20,cap:6,ages:[9,13],level:"Beginner",days:[6,0],hour:9,mins:60},
+  {id:"c6",t:"t3",title:"Japanese from zero",subject:"Japanese",lang:"Japanese",type:"group",price:16,cap:8,ages:[16,99],level:"Beginner",days:[2,4],hour:20,mins:50},
+  {id:"c7",t:"t4",title:"Kitchen science lab",subject:"Science",lang:"English",type:"group",price:15,cap:8,ages:[8,12],level:"Beginner",days:[6],hour:18,mins:45},
+  {id:"c8",t:"t4",title:"IB Chemistry tutoring",subject:"Science",lang:"English",type:"private",price:38,cap:1,ages:[15,19],level:"Advanced",days:[1,3,5],hour:20,mins:60},
+  {id:"c9",t:"t5",title:"French through songs",subject:"French",lang:"French",type:"group",price:14,cap:6,ages:[6,10],level:"Beginner",days:[3,6],hour:16,mins:40},
+  {id:"c10",t:"t5",title:"Piano lessons, all levels",subject:"Music",lang:"French",type:"private",price:35,cap:1,ages:[7,99],level:"Beginner",days:[1,2,4],hour:18,mins:45},
+  {id:"c11",t:"t6",title:"Reading club for confident readers",subject:"English",lang:"English",type:"group",price:15,cap:6,ages:[8,11],level:"Intermediate",days:[2,4],hour:16,mins:45},
+  {id:"c12",t:"t6",title:"Essay writing coaching",subject:"Writing",lang:"English",type:"private",price:36,cap:1,ages:[13,99],level:"Advanced",days:[1,3],hour:18,mins:60},
+  {id:"c13",t:"t7",title:"Arabic for beginners",subject:"Arabic",lang:"Arabic",type:"group",price:17,cap:6,ages:[14,99],level:"Beginner",days:[0,3],hour:19,mins:50},
+  {id:"c14",t:"t8",title:"Drawing animals and characters",subject:"Art",lang:"Portuguese",type:"group",price:13,cap:7,ages:[7,12],level:"Beginner",days:[6,0],hour:10,mins:50},
+  {id:"c15",t:"t8",title:"Brazilian Portuguese 1:1",subject:"Portuguese",lang:"Portuguese",type:"private",price:28,cap:1,ages:[16,99],level:"Intermediate",days:[1,2,3,4,5],hour:12,mins:50}
+];
+const SEED_REVIEWS = [
+  {t:"t1",name:"Daniel (parent)",stars:5,text:"My son finally enjoys maths. Amara explains each step until it clicks."},
+  {t:"t1",name:"Hana",stars:5,text:"Passed my A-level with an A. The practice papers were spot on."},
+  {t:"t2",name:"Claire (parent)",stars:5,text:"My twins giggle through the whole class and come out singing in Spanish."},
+  {t:"t3",name:"Leo (parent)",stars:5,text:"Kenji is patient and the projects are genuinely fun. Leo built a game in week three."},
+  {t:"t4",name:"Fatima",stars:5,text:"The best chemistry teacher I've had, online or off."},
+  {t:"t5",name:"Tom",stars:4,text:"Great piano teacher. Scheduling across time zones was easy."},
+  {t:"t6",name:"Mei (parent)",stars:5,text:"Sarah noticed things about my daughter's reading that school never did."},
+  {t:"t7",name:"James",stars:5,text:"Clear, structured, and encouraging. I can read Arabic script after a month."},
+  {t:"t8",name:"Ana (parent)",stars:5,text:"Beautiful lessons. My son draws every day now."}
+];
+
+/* ---------- state ---------- */
+const S = {
+  role: store("role") || "learner",
+  bookings: store("bookings") || [],
+  reviews: store("reviews") || [],
+  children: store("children") || [{id:"k1",name:"Mia",age:9}],
+  plans: store("plans") || [
+    {id:"p1",day:0,title:"Algebra: linear equations",note:"Warm-up quiz, worked examples, exit ticket"},
+    {id:"p2",day:2,title:"Graphing lines",note:"Desmos activity in breakout groups"},
+    {id:"p3",day:4,title:"Review + mini test",note:"10 questions, peer marking"}
+  ],
+  grades: store("grades") || [
+    {id:"g1",name:"Hana K.",cls:"Algebra without fear",a1:88,a2:92,a3:""},
+    {id:"g2",name:"Lucas M.",cls:"Algebra without fear",a1:71,a2:78,a3:""},
+    {id:"g3",name:"Zoe P.",cls:"Algebra without fear",a1:95,a2:90,a3:""},
+    {id:"g4",name:"Ibrahim S.",cls:"1:1 exam preparation",a1:64,a2:72,a3:""}
+  ],
+  resources: store("resources") || [
+    {id:"r1",title:"Linear equations worksheet pack",subject:"Maths",age:"13–15",by:"Amara Okafor",kind:"Worksheet",url:""},
+    {id:"r2",title:"Spanish colours song + flashcards",subject:"Spanish",age:"5–8",by:"Lucía Fernández",kind:"Activity",url:""},
+    {id:"r3",title:"Kitchen pH indicator experiment",subject:"Science",age:"8–12",by:"Priya Raman",kind:"Lesson plan",url:""},
+    {id:"r4",title:"Persuasive essay rubric",subject:"Writing",age:"13+",by:"Sarah Mitchell",kind:"Rubric",url:""},
+    {id:"r5",title:"Python turtle starter projects",subject:"Coding",age:"9–13",by:"Kenji Watanabe",kind:"Project",url:""}
+  ],
+  myClasses: store("myClasses") || [],
+  filters: {q:"",subject:"",lang:"",age:"",level:"",type:"",when:"",price:""}
+};
+function save(){ ["role","bookings","reviews","children","plans","grades","resources","myClasses"].forEach(k=>store(k,S[k])) }
+const allClasses = () => CLASSES.concat(S.myClasses);
+const teacher = id => TEACHERS.find(t=>t.id===id);
+const cls = id => allClasses().find(c=>c.id===id);
+const DEMO = `<span class="tag demo" style="align-self:flex-start">Demo</span>`;
+const typeLabel = c => c.type==="private" ? "Private lesson · 1 student" : "Small group class · up to "+c.cap;
+function ensureMe(){ if(!TEACHERS.find(t=>t.id==="me")) TEACHERS.push({id:"me",name:"You",city:"your city",offset:-new Date().getTimezoneOffset()/60,color:"#DCE1EC",years:1,langs:["English"],subjects:[],rating:5,intro:"New teacher on Everyclass.",exp:"Add your experience in your profile."}) }
+if(S.myClasses.length) ensureMe();
+function startTeaching(){ TAB="list"; setRole("teacher") }
+function bookAs(r){ S.role=r; $("#role").value=r; save(); showBooking() }
+
+/* sessions for next 14 days, computed from the teacher's local hour → UTC → viewer local */
+function sessions(c){
+  const t = teacher(c.t), out=[], now=Date.now();
+  const base = new Date(); base.setUTCHours(0,0,0,0);
+  for(let i=0;i<14;i++){
+    const d = new Date(base.getTime()+i*864e5);
+    const teacherLocal = new Date(d.getTime()+ (t.offset)*36e5);
+    if(!c.days.includes(teacherLocal.getUTCDay())) continue;
+    const startUTC = Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()) + (c.hour - t.offset)*36e5;
+    if(startUTC < now + 30*6e4) continue;
+    const key = c.id+"@"+startUTC;
+    const seeded = c.real ? 0 : c.type==="group" ? (hash(key)%(c.cap)) : (hash(key)%4===0?1:0);
+    const mine = S.bookings.filter(b=>b.key===key).length;
+    out.push({key,start:new Date(startUTC),left:Math.max(0,c.cap-seeded-mine)});
+  }
+  return out;
+}
+function hash(s){let h=0;for(const ch of s)h=(h*31+ch.charCodeAt(0))|0;return Math.abs(h)}
+function reviewsFor(tid){ return SEED_REVIEWS.filter(r=>r.t===tid).map(r=>({...r,demo:true})).concat(S.reviews.filter(r=>r.t===tid)) }
+function rating(tid){ const r=reviewsFor(tid); return r.length? (r.reduce((a,b)=>a+b.stars,0)/r.length) : teacher(tid).rating }
+const starStr = n => "★".repeat(Math.round(n)) + "☆".repeat(5-Math.round(n));
+const initials = n => n.split(" ").map(w=>w[0]).join("").slice(0,2);
+const ageLabel = a => a[1]>=99 ? `Ages ${a[0]}+` : `Ages ${a[0]}–${a[1]}`;
+
+/* ---------- views ---------- */
+function home(){
+  const upcoming = allClasses().flatMap(c=>sessions(c).filter(s=>s.left>0).slice(0,1).map(s=>({c,s})))
+    .sort((a,b)=>a.s.start-b.s.start).slice(0,10);
+  return `
+  <section class="hero wrap">
+    <h1>Teachers everywhere. <span>Learning for anyone.</span></h1>
+    <p class="lead">Everyclass is where teachers anywhere in the world offer live online lessons, and students anywhere book them. Choose a private lesson or a small group class, with every time shown in your own time zone.</p>
+    <div class="cta">
+      <a class="btn lg" href="#/classes">Find a class</a>
+      <a class="btn lg ghost" href="#/studio" onclick="startTeaching()">Start teaching</a>
+    </div>
+    <form class="search" onsubmit="event.preventDefault();S.filters.q=this.q.value;location.hash='#/classes'">
+      <label class="sr" for="hq">What do you want to learn?</label>
+      <input id="hq" name="q" placeholder="Try “Spanish for kids” or “chemistry”">
+      <button class="btn ghost">Search</button>
+    </form>
+    <div class="clocks">
+      <h3>Starting soon, in your time (${esc(TZ)})</h3>
+      <div class="clockrow">
+        ${upcoming.map(({c,s})=>{const t=teacher(c.t);return `
+        <button class="clock" onclick="openBooking('${c.id}','${s.key}')">
+          <div class="t">${fmtTime(s.start)}</div>
+          <div class="small">${fmtDay(s.start)}</div>
+          <div style="margin-top:6px;font-weight:700">${esc(c.title)}</div>
+          <div class="city">${esc(t.name)}${t.city?", teaching from "+esc(t.city):""}</div>${c.mine?"":`<div style="margin-top:8px">${DEMO}</div>`}
+        </button>`}).join("")}
+      </div>
+    </div>
+  </section>
+  <section class="wrap">
+    <div class="aud">
+      <div class="box"><h3>For students and parents</h3>
+        <ul><li>Search by subject, language, level, price and time of day</li><li>Book for yourself, or book for your child from a parent account</li><li>Join from your lesson link when it's time</li></ul>
+        <a class="btn sm" href="#/classes">Find a class</a></div>
+      <div class="box"><h3>For teachers</h3>
+        <ul><li>Offer a private lesson or a small group class</li><li>Set your subject, language, price, schedule, level and class size</li><li>Students see your times in their own time zone</li></ul>
+        <a class="btn sm" href="#/studio" onclick="startTeaching()">Start teaching</a></div>
+    </div>
+    <div class="steps">
+      <div><h3>Find a class</h3><p class="muted">Filter by subject, language, age, level and the hours that suit you.</p></div>
+      <div><h3>Book and pay</h3><p class="muted">Choose a time, pay securely, and get your lesson link straight away.</p></div>
+      <div><h3>Join and learn</h3><p class="muted">Open the link from My lessons when it's time. Leave a review afterwards.</p></div>
+    </div>
+    <div class="teachband">
+      <div>
+        <h2>Teach from wherever you are</h2>
+        <p>Create a teacher account, fill in your profile and list your classes. Everyclass converts your times for students in every time zone, and gives you a studio to plan lessons, track grades and share resources.</p>
+        <a class="btn" href="#/studio" onclick="startTeaching()">Start teaching</a>
+      </div>
+      <ul>
+        <li>A public profile with your experience and languages</li>
+        <li>Private lessons or small group classes, with a class size you set</li>
+        <li>Weekly planner, gradebook and resource library</li>
+        <li>Your account is reviewed before your classes go public</li>
+      </ul>
+    </div>
+    <h2>Sample reviews</h2>
+    <p class="muted">These demo reviews show how feedback will look. Real reviews come only from learners who have booked a lesson.</p>
+    <div class="grid2" style="margin-bottom:56px">
+      ${SEED_REVIEWS.slice(0,3).map(r=>`<div class="res">${DEMO}<span class="stars" aria-label="${r.stars} out of 5">${starStr(r.stars)}</span><p style="margin:0">${esc(r.text)}</p><span class="small muted">${esc(r.name)}, about <a href="#/teacher/${r.t}">${esc(teacher(r.t).name)}</a></span></div>`).join("")}
+    </div>
+  </section>`;
+}
+
+function optionList(vals, cur, any){ return `<option value="">${any}</option>` + vals.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("") }
+function browse(){
+  const F=S.filters, subjects=[...new Set(allClasses().map(c=>c.subject))].sort(), langs=[...new Set(allClasses().map(c=>c.lang))].sort();
+  const chip=(k,v,l)=>`<button class="chip" aria-pressed="${F[k]===v}" onclick="S.filters.${k}=S.filters.${k}==='${v}'?'':'${v}';render()">${l}</button>`;
+  return `<div class="wrap browse">
+    <aside class="filters" aria-label="Filters">
+      <h3>Filter</h3>
+      <label class="field">Search<input value="${esc(F.q)}" oninput="S.filters.q=this.value;renderResults()" placeholder="Subject, teacher, topic"></label>
+      <label class="field">Subject<select onchange="S.filters.subject=this.value;renderResults()">${optionList(subjects,F.subject,"Any subject")}</select></label>
+      <label class="field">Teaching language<select onchange="S.filters.lang=this.value;renderResults()">${optionList(langs,F.lang,"Any language")}</select></label>
+      <label class="field">Learner's age<input type="number" min="3" max="99" value="${esc(F.age)}" oninput="S.filters.age=this.value;renderResults()" placeholder="e.g. 9"></label>
+      <label class="field">Highest price per lesson (USD)<input type="number" min="1" value="${esc(F.price)}" oninput="S.filters.price=this.value;renderResults()" placeholder="e.g. 20"></label>
+      <label class="field">Level<select onchange="S.filters.level=this.value;renderResults()">${optionList(["Beginner","Intermediate","Advanced"],F.level,"Any level")}</select></label>
+      <div class="field">Class type<div class="chips">${chip("type","private","Private lesson")}${chip("type","group","Small group")}</div></div>
+      <div class="field">When (your time)<div class="chips">${chip("when","morning","Mornings")}${chip("when","afternoon","Afternoons")}${chip("when","evening","Evenings")}${chip("when","weekend","Weekends")}</div></div>
+      <button class="btn ghost sm" onclick="S.filters={q:'',subject:'',lang:'',age:'',level:'',type:'',when:'',price:''};render()">Clear filters</button>
+    </aside>
+    <section id="results"></section>
+  </div>`;
+}
+function matches(c){
+  const F=S.filters, t=teacher(c.t), q=F.q.trim().toLowerCase();
+  if(q && !(c.title+" "+c.subject+" "+t.name+" "+c.lang).toLowerCase().includes(q)) return false;
+  if(F.subject && c.subject!==F.subject) return false;
+  if(F.lang && c.lang!==F.lang) return false;
+  if(F.level && c.level!==F.level) return false;
+  if(F.type && c.type!==F.type) return false;
+  if(F.age){ const a=+F.age; if(a<c.ages[0]||a>c.ages[1]) return false }
+  if(F.price && c.price>+F.price) return false;
+  if(F.when){
+    const ss=sessions(c).filter(s=>{const h=s.start.getHours(),d=s.start.getDay();
+      return F.when==="morning"?h>=5&&h<12:F.when==="afternoon"?h>=12&&h<17:F.when==="evening"?h>=17&&h<23:(d===0||d===6)});
+    if(!ss.length) return false;
+  }
+  return true;
+}
+function renderResults(){
+  const el=$("#results"); if(!el) return;
+  const list=allClasses().filter(matches);
+  el.innerHTML = `<div class="results-head"><h2 style="margin:0">${list.length} ${list.length===1?"class":"classes"}</h2><span class="small muted">Times in ${esc(TZ)}</span></div>
+  <p class="notice" style="margin-top:0">Teachers and classes marked Demo are samples that show how Everyclass works. Booking and payment are not open yet.</p>
+  ${list.length? `<div class="list">${list.map(card).join("")}</div>` :
+   `<div class="empty"><h3>No classes match these filters</h3><p class="muted">Try removing the age or time filter, or search a broader subject.</p></div>`}`;
+}
+function card(c){
+  const t=teacher(c.t), ss=sessions(c), nx=ss.find(s=>s.left>0);
+  const left = nx? nx.left : 0;
+  return `<article class="listing">
+    <div class="avatar" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
+    <div>
+      <span class="tag ${c.type}">${typeLabel(c)}</span> ${c.mine?"":DEMO}
+      <h3><button onclick="openBooking('${c.id}')">${esc(c.title)}</button></h3>
+      <div class="small"><a href="#/teacher/${t.id}">${esc(t.name)}</a> ${ratingLabel(t.id)}${t.city?` <span class="muted">from ${esc(t.city)}</span>`:""}</div>
+      <div class="meta"><span>${esc(c.subject)}</span><span>Taught in ${esc(c.lang)}</span><span>${ageLabel(c.ages)}</span><span>${c.level}</span><span>${c.mins} min</span></div>
+      <div class="next">${nx?`Next: <b>${fmtDay(nx.start)}, ${fmtTime(nx.start)}</b>`:"No open times in the next two weeks"}</div>
+    </div>
+    <div class="price">
+      <b>${money(c.price)}</b><span class="small muted">per lesson</span>
+      <div class="places ${left<=2?"low":""}">${nx?(c.type==="private"?"Available":left+" of "+c.cap+" places left"):"Full"}</div>
+      <button class="btn sm" style="margin-top:8px" onclick="openBooking('${c.id}')" ${nx?"":"disabled"}>Book</button>
+    </div>
+  </article>`;
+}
+
+function profile(id){
+  const t=teacher(id); if(!t) return `<div class="wrap page"><h2>Teacher not found</h2><a href="#/classes">Browse classes</a></div>`;
+  const rv=reviewsFor(id), booked=S.bookings.some(b=>cls(b.cid)?.t===id);
+  return `<div class="wrap profile">
+    <div class="profile-head">
+      <div class="avatar lg" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
+      <div><h2 style="margin:0">${esc(t.name)}</h2>
+        ${t.real||t.id==="me"?"":`<div class="small muted" style="margin:4px 0">${DEMO} Sample profile that shows how a teacher page looks.</div>`}
+        <div class="muted">${[t.city?"Teaching from "+esc(t.city):"", t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}</div>
+        <div>${rv.length?`<span class="stars">${starStr(rating(id))}</span> ${rating(id).toFixed(1)} from ${rv.length} reviews`:"New teacher, no reviews yet"}</div></div>
+    </div>
+    <div class="cols">
+      <div>
+        <div class="box"><h3>About me</h3><p>${esc(t.intro)}</p><h3>Experience</h3><p>${esc(t.exp)}</p>
+          <h3>Teaching languages</h3><div class="chips">${t.langs.map(l=>`<span class="chip">${esc(l)}</span>`).join("")}</div></div>
+        <h3>Classes</h3><div class="list">${allClasses().filter(c=>c.t===id).map(card).join("")}</div>
+      </div>
+      <div>
+        <div class="box"><h3>Reviews</h3>
+          ${rv.map(r=>`<div class="review">${r.demo?DEMO+" ":""}<span class="stars">${starStr(r.stars)}</span><p style="margin:4px 0">${esc(r.text)}</p><span class="small muted">${esc(r.name)}</span></div>`).join("")}
+        </div>
+        <div class="box"><h3>Leave a review</h3>
+          ${booked?`<form onsubmit="event.preventDefault();addReview('${id}',this)">
+            <label class="field">Rating<select name="stars">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} stars</option>`).join("")}</select></label>
+            <label class="field" style="margin-top:8px">Your review<textarea name="text" rows="3" required></textarea></label>
+            <button class="btn sm" style="margin-top:10px">Post review</button></form>`
+          :`<p class="muted small" style="margin:0">Reviews open after you book a lesson with ${esc(t.name.split(" ")[0])}.</p>`}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function addReview(tid,f){ S.reviews.push({t:tid,name:S.role==="parent"?"You (parent)":"You",stars:+f.stars.value,text:f.text.value.trim()}); save(); toast("Review posted"); render() }
+
+/* ---------- booking flow ---------- */
+let BK={};
+function openBooking(cid,key){
+  const c=cls(cid); BK={cid,key:key||null,step:"slot",learner:""}; showBooking(); $("#dlg").showModal();
+}
+function showBooking(){
+  const c=cls(BK.cid), t=teacher(c.t), ss=sessions(c), body=$("#dlgBody");
+  const young = c.ages[1] < 13;
+  if(BK.step==="slot"){
+    body.innerHTML = `<div class="dlg-head"><div><span class="tag ${c.type}">${typeLabel(c)}</span>${c.mine?"":" "+DEMO}<h3 style="margin-top:6px">${esc(c.title)}</h3>
+      <div class="small">with <a href="#/teacher/${t.id}" onclick="$('#dlg').close()">${esc(t.name)}</a> · ${c.mins} min · ${money(c.price)} · ${ageLabel(c.ages)}</div></div>
+      <button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
+      <p class="small muted" style="margin-top:12px">Times are shown in your time zone (${esc(TZ)}). ${esc(t.name.split(" ")[0])} teaches from ${esc(t.city)}.</p>
+      <div class="slots" role="group" aria-label="Choose a time">
+        ${ss.map(s=>`<button class="slot" aria-pressed="${BK.key===s.key}" ${s.left?"":"disabled"} onclick="BK.key='${s.key}';showBooking()">
+          <b>${fmtDay(s.start)}</b>${fmtTime(s.start)}<div class="small ${s.left<=2&&s.left?"places low":"muted"}">${s.left?(c.type==="private"?"Open":s.left+" places left"):"Full"}</div></button>`).join("") || "<p>No open times.</p>"}
+      </div>
+      ${S.role==="teacher" ? `<div class="notice">You're viewing as a teacher. To book this class: <button class="btn sm ghost" onclick="bookAs('learner')">Book for myself</button> <button class="btn sm ghost" onclick="bookAs('parent')">Book for my child</button></div>`
+      : `<div class="field" style="margin:12px 0">Who is this lesson for?<div class="chips">
+          <button class="chip" aria-pressed="${S.role==="learner"}" ${young?"disabled":""} onclick="bookAs('learner')">Myself</button>
+          <button class="chip" aria-pressed="${S.role==="parent"}" onclick="bookAs('parent')">My child</button></div>
+          ${young?`<span class="small muted">This class is for children under 13, so a parent books it for their child.</span>`:""}</div>`}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+        <button class="btn" ${BK.key && S.role!=="teacher" && !(young&&S.role==="learner") ?"":"disabled"} onclick="BK.step='pay';showBooking()">Continue to payment</button></div>`;
+  } else if(BK.step==="pay"){
+    const s=ss.find(x=>x.key===BK.key);
+    body.innerHTML = `<div class="dlg-head"><h3>Book and pay</h3><button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
+      <div class="box" style="margin:12px 0"><b>${esc(c.title)}</b><div class="small">${fmtDay(s.start)}, ${fmtTime(s.start)} (your time) · ${c.mins} min with ${esc(t.name)}</div><div style="margin-top:6px">Total <b>${money(c.price)}</b></div></div>
+      <form id="payf" onsubmit="event.preventDefault();pay(this)">
+        ${S.role==="parent" ? (S.children.length ? `<label class="field">Which child is this lesson for?<select name="learner" required>${S.children.map(k=>`<option value="${k.id}">${esc(k.name)}, ${k.age}</option>`).join("")}</select></label>
+          <p class="small muted" style="margin:4px 0 12px">You're booking as a parent. Manage children in <a href="#/learning" onclick="$('#dlg').close()">My lessons</a>.</p>`
+          : `<div class="row" style="margin-bottom:12px"><label class="field">Child's first name<input name="cname" required></label><label class="field">Child's age<input name="cage" type="number" min="3" max="17" required></label></div>`)
+          : `<label class="field" style="margin-bottom:12px">Your name (you're booking for yourself)<input name="lname" required autocomplete="name"></label>`}
+        <div class="row">
+          <label class="field" style="grid-column:1/-1">Card number<input name="card" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" required></label>
+          <label class="field">Expiry<input name="exp" placeholder="MM/YY" autocomplete="cc-exp" required></label>
+          <label class="field">CVC<input name="cvc" inputmode="numeric" placeholder="123" autocomplete="cc-csc" required></label>
+        </div>
+        <p class="small muted">Demo checkout: any 16-digit number works and nothing is charged.</p>
+        <div class="err" id="perr"></div>
+        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px">
+          <button type="button" class="btn ghost" onclick="BK.step='slot';showBooking()">Back</button>
+          <button class="btn">Pay ${money(c.price)}</button></div>
+      </form>`;
+  } else {
+    const b=S.bookings.find(x=>x.id===BK.bid);
+    body.innerHTML = `<div class="dlg-head"><h3>You're booked</h3><button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
+      <div class="ok"><b>${esc(c.title)}</b><div>${fmtDay(new Date(b.start))}, ${fmtTime(new Date(b.start))} · for ${esc(b.who)}</div></div>
+      <p style="margin-top:14px">Your lesson link:</p>
+      <div class="linkbox"><span>${esc(b.link)}</span></div>
+      <p class="small muted">It's also saved in My lessons. The Join button opens 10 minutes before the start.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" onclick="navigator.clipboard?.writeText('${b.link}').then(()=>toast('Link copied'),()=>toast('Copy the link from the box'))">Copy link</button><a class="btn" href="#/learning" onclick="$('#dlg').close()">Go to My lessons</a></div>`;
+  }
+}
+function pay(f){
+  const card=f.card.value.replace(/\s/g,""), exp=f.exp.value.trim(), cvc=f.cvc.value.trim(), err=$("#perr");
+  if(!/^\d{16}$/.test(card)) return err.textContent="Card number needs 16 digits.";
+  if(!/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp)) return err.textContent="Expiry should look like 08/28.";
+  if(!/^\d{3,4}$/.test(cvc)) return err.textContent="CVC is the 3 or 4 digits on the back of the card.";
+  const c=cls(BK.cid), start=+BK.key.split("@")[1];
+  if(!sessions(c).find(s=>s.key===BK.key)?.left) return err.textContent="That time just filled up. Go back and choose another.";
+  let who;
+  if(S.role==="parent"){
+    if(f.learner) who = S.children.find(k=>k.id===f.learner.value)?.name || "Child";
+    else { const k={id:uid(),name:f.cname.value.trim(),age:+f.cage.value}; S.children.push(k); who=k.name }
+  } else who = f.lname.value.trim();
+  const id=uid();
+  S.bookings.push({id,cid:c.id,key:BK.key,start,who,paid:c.price,link:`https://class.everyclass.app/join/${id}`,parent:S.role==="parent"});
+  save(); BK.step="done"; BK.bid=id; toast("Booked and paid"); showBooking();
+}
+
+/* ---------- my lessons + family ---------- */
+function learning(){
+  const now=Date.now(), mine=S.bookings.slice().sort((a,b)=>a.start-b.start);
+  const up=mine.filter(b=>b.start+90*6e4>now), past=mine.filter(b=>b.start+90*6e4<=now);
+  const row=b=>{const c=cls(b.cid),t=teacher(c.t),open=now>=b.start-10*6e4;return `<div class="lesson">
+    <div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(new Date(b.start))}, ${fmtTime(new Date(b.start))} · with ${esc(t.name)} · for ${esc(b.who)}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn ghost sm" href="#/teacher/${t.id}">Review teacher</a>
+    <button class="btn sm" onclick="joinLesson('${b.id}')" ${open?"":"title='Opens 10 minutes before the start'"}>${open?"Join lesson":"Join (opens soon)"}</button>
+    <button class="btn ghost sm" onclick="cancelB('${b.id}')">${CANCEL===b.id?"Confirm cancel":"Cancel"}</button></div></div>`};
+  return `<div class="wrap page">
+    <h2>My lessons</h2>
+    ${up.length? up.map(row).join("") : `<div class="empty"><h3>No lessons booked yet</h3><p class="muted">Find a class that fits your week.</p><a class="btn" href="#/classes">Find classes</a></div>`}
+    ${past.length?`<h3 style="margin-top:24px">Past lessons</h3>${past.map(row).join("")}`:""}
+    <div class="box" style="margin-top:28px">
+      <h3>Family</h3>
+      <p class="muted small">Parent accounts manage bookings for learners under 13. Children don't need their own email or payment details.</p>
+      ${S.role!=="parent"?`<p><button class="btn sm ghost" onclick="setRole('parent')">Switch to parent account</button></p>`:""}
+      <div class="list" style="margin:10px 0">${S.children.map(k=>`<div class="lesson" style="margin:0"><span><b>${esc(k.name)}</b>, age ${k.age}</span><button class="btn ghost sm" onclick="S.children=S.children.filter(x=>x.id!=='${k.id}');save();render()">Remove</button></div>`).join("")}</div>
+      <form class="row" onsubmit="event.preventDefault();S.children.push({id:uid(),name:this.n.value.trim(),age:+this.a.value});save();render();toast('Child added')">
+        <label class="field">Child's first name<input name="n" required></label>
+        <label class="field">Age<input name="a" type="number" min="3" max="17" required></label>
+        <button class="btn sm" style="align-self:end">Add child</button>
+      </form>
+    </div>
+  </div>`;
+}
+function joinLesson(id){
+  const b=S.bookings.find(x=>x.id===id), c=cls(b.cid), open=Date.now()>=b.start-10*6e4;
+  $("#dlgBody").innerHTML=`<div class="dlg-head"><h3>${esc(c.title)}</h3><button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
+    ${open?`<div class="ok">The classroom is open. In the full product this launches the video lesson.</div>`:`<div class="notice">The classroom opens 10 minutes before ${fmtTime(new Date(b.start))} on ${fmtDay(new Date(b.start))}. Keep this link handy:</div>`}
+    <div class="linkbox" style="margin-top:12px">${esc(b.link)}</div>`;
+  $("#dlg").showModal();
+}
+let CANCEL=null;
+function cancelB(id){
+  if(CANCEL!==id){ CANCEL=id; render(); toast("Press Confirm cancel to cancel this lesson"); return }
+  CANCEL=null; S.bookings=S.bookings.filter(b=>b.id!==id); save(); toast("Lesson cancelled"); render();
+}
+
+/* ---------- teacher studio ---------- */
+let TAB="plan";
+const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday"];
+function studio(){
+  const tabs=[["list","Create a class"],["plan","Weekly planner"],["grades","Students & grades"],["res","Resources"]];
+  return `<div class="wrap page">
+    <h2>Teacher studio</h2>
+    ${S.role!=="teacher"?`<div class="notice">You're viewing as a ${S.role}. <button class="btn sm ghost" onclick="setRole('teacher')">Switch to teacher</button></div>`:""}
+    <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
+    ${TAB==="plan"?planner():TAB==="grades"?gradebook():TAB==="res"?resources():listings()}
+  </div>`;
+}
+function planner(){
+  return `<div class="week">${DAYS.map((d,i)=>`<div class="day"><h4>${d}</h4>
+    ${S.plans.filter(p=>p.day===i).map(p=>`<div class="plan"><button onclick="S.plans=S.plans.filter(x=>x.id!=='${p.id}');save();render()" aria-label="Delete ${esc(p.title)}">Delete</button><b>${esc(p.title)}</b>${esc(p.note)}</div>`).join("") || `<span class="small muted">Nothing planned</span>`}
+  </div>`).join("")}</div>
+  <form class="box row" style="margin-top:16px" onsubmit="event.preventDefault();S.plans.push({id:uid(),day:+this.d.value,title:this.t.value.trim(),note:this.n.value.trim()});save();render();toast('Lesson added to planner')">
+    <label class="field">Day<select name="d">${DAYS.map((d,i)=>`<option value="${i}">${d}</option>`).join("")}</select></label>
+    <label class="field">Lesson title<input name="t" required></label>
+    <label class="field">Plan notes<input name="n" placeholder="Activities, materials, homework"></label>
+    <button class="btn sm" style="align-self:end">Add lesson</button>
+  </form>`;
+}
+function gradebook(){
+  const avg=g=>{const v=[g.a1,g.a2,g.a3].filter(x=>x!==""&&x!=null).map(Number);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):"–"};
+  return `<div class="scroll"><table><thead><tr><th>Student</th><th>Class</th><th>Quiz 1</th><th>Quiz 2</th><th>Project</th><th>Average</th><th></th></tr></thead><tbody>
+    ${S.grades.map(g=>`<tr><td>${esc(g.name)}</td><td class="small">${esc(g.cls)}</td>
+      ${["a1","a2","a3"].map(k=>`<td><input type="number" min="0" max="100" value="${esc(g[k])}" aria-label="${k} for ${esc(g.name)}" onchange="setGrade('${g.id}','${k}',this.value)"></td>`).join("")}
+      <td><b>${avg(g)}</b></td><td><button class="btn ghost sm" onclick="S.grades=S.grades.filter(x=>x.id!=='${g.id}');save();render()">Remove</button></td></tr>`).join("")}
+  </tbody></table></div>
+  <form class="box row" style="margin-top:16px" onsubmit="event.preventDefault();S.grades.push({id:uid(),name:this.n.value.trim(),cls:this.c.value,a1:'',a2:'',a3:''});save();render();toast('Student added')">
+    <label class="field">Student name<input name="n" required></label>
+    <label class="field">Class<select name="c">${allClasses().filter(c=>c.t==="t1"||(A.user&&c.t===A.user.id)).map(c=>`<option>${esc(c.title)}</option>`).join("")}</select></label>
+    <button class="btn sm" style="align-self:end">Add student</button>
+  </form>`;
+}
+function setGrade(id,k,v){ const g=S.grades.find(x=>x.id===id); g[k]=v===""?"":Math.max(0,Math.min(100,+v)); save(); render() }
+let RQ="";
+function resources(){
+  const list=S.resources.filter(r=>(r.title+r.subject+r.kind+r.by).toLowerCase().includes(RQ.toLowerCase()));
+  return `<label class="field" style="max-width:420px;margin-bottom:14px">Search the shared library<input value="${esc(RQ)}" oninput="RQ=this.value;$('#reslist').innerHTML=resCards()" placeholder="Worksheet, maths, rubric…"></label>
+  <div class="grid2" id="reslist">${resCards(list)}</div>
+  <form class="box row" style="margin-top:16px" onsubmit="event.preventDefault();S.resources.unshift({id:uid(),title:this.t.value.trim(),subject:this.s.value.trim(),age:this.a.value.trim(),kind:this.k.value,by:'You',url:this.u.value.trim()});save();render();toast('Resource shared')">
+    <label class="field">Title<input name="t" required></label>
+    <label class="field">Subject<input name="s" required></label>
+    <label class="field">Ages<input name="a" placeholder="8–12"></label>
+    <label class="field">Type<select name="k"><option>Worksheet</option><option>Lesson plan</option><option>Activity</option><option>Rubric</option><option>Project</option></select></label>
+    <label class="field">Link (optional)<input name="u" type="url" placeholder="https://"></label>
+    <button class="btn sm" style="align-self:end">Share resource</button>
+  </form>`;
+}
+function resCards(list){
+  list = list || S.resources.filter(r=>(r.title+r.subject+r.kind+r.by).toLowerCase().includes(RQ.toLowerCase()));
+  return list.length? list.map(r=>`<div class="res"><span class="tag private" style="align-self:start">${esc(r.kind)}</span><b>${esc(r.title)}</b><span class="small muted">${esc(r.subject)}${r.age?", ages "+esc(r.age):""} · shared by ${esc(r.by)}</span>${r.url?`<a class="small" href="${esc(r.url)}" target="_blank" rel="noopener">Open resource</a>`:""}</div>`).join("")
+   : `<div class="empty">No resources match. Share the first one below.</div>`;
+}
+function listings(){
+  return `<p class="muted">Create a class. Choose the kind of class first, then set the details students search by. Students can find it once your account is approved.</p>
+  ${myClassList()}
+  <form class="box row" id="newclass" onsubmit="event.preventDefault();addListing(this)">
+    <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>What kind of class is this?</legend><div class="choices">
+      <label class="choice"><input type="radio" name="type" value="private" id="nc-private" checked onchange="$('#nc-capwrap').hidden=true"><span><b>Private lesson</b>One student at a time, one-to-one with you.</span></label>
+      <label class="choice"><input type="radio" name="type" value="group" id="nc-group" onchange="$('#nc-capwrap').hidden=false"><span><b>Small group class</b>Several students together, up to a size you set.</span></label>
+    </div></fieldset>
+    <label class="field" style="grid-column:1/-1">Class title<input name="title" id="nc-title" required placeholder="e.g. Conversational French for beginners"></label>
+    <label class="field">Subject<input name="subject" id="nc-subject" required></label>
+    <label class="field">Teaching language<input name="lang" id="nc-lang" value="English" required></label>
+    <label class="field">Student level<select name="level" id="nc-level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label>
+    <label class="field">Price per lesson (USD)<input name="price" id="nc-price" type="number" min="1" value="20" required></label>
+    <label class="field" id="nc-capwrap" hidden>Maximum class size<input name="cap" id="nc-cap" type="number" min="2" max="12" value="6"></label>
+    <label class="field">Youngest age<input name="a0" id="nc-a0" type="number" min="3" value="8"></label>
+    <label class="field">Oldest age<input name="a1" id="nc-a1" type="number" min="3" value="12"></label>
+    <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Schedule: which days?</legend><div class="chips">
+      ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d,i)=>`<label class="chip"><input type="checkbox" name="day" value="${i}" ${i===2||i===4?"checked":""}> ${d}</label>`).join("")}</div></fieldset>
+    <label class="field">Start time (your time)<input name="time" id="nc-time" type="time" value="17:00" required></label>
+    <label class="field">Lesson length (minutes)<input name="mins" id="nc-mins" type="number" min="15" step="5" value="45"></label>
+    <p class="small muted" style="grid-column:1/-1;margin:0">You set times in your own time zone (${esc(TZ)}). Students see them converted to theirs.</p>
+    <button class="btn" style="grid-column:1/-1;justify-self:start">Publish class</button>
+  </form>`;
+}
+function addListing(f){
+  const days=[...f.querySelectorAll('[name=day]:checked')].map(x=>+x.value);
+  if(!days.length) return toast("Choose at least one day");
+  ensureMe();
+  const type=f.type.value;
+  S.myClasses.push({id:"m"+uid(),t:"me",mine:true,title:f.title.value.trim(),subject:f.subject.value.trim(),lang:f.lang.value.trim(),type,price:+f.price.value,cap:type==="private"?1:Math.max(2,+f.cap.value||6),ages:[+f.a0.value,+f.a1.value||99],level:f.level.value,days,hour:+f.time.value.split(":")[0],mins:+f.mins.value});
+  save(); toast("Class published"); render();
+}
+
+/* ---------- help ---------- */
+function help(){
+  const faq=[
+    ["How do time zones work?","Every time on Everyclass is shown in your device's time zone. Teachers set hours in theirs, and we convert automatically."],
+    ["Are the teachers and classes real?","Teachers, classes and reviews marked Demo are samples that show how the platform works. Listings without a Demo tag belong to real teachers whose accounts have been approved. Booking and payment are not open yet."],
+    ["What's the difference between a private lesson and a small group class?","A private lesson is one student, one-to-one with the teacher. A small group class has a maximum size the teacher sets, shown on each listing with the places left."],
+    ["Who can book?","Students aged 13 and over book for themselves. Parents book for their children from a parent account and choose which child each lesson is for."],
+    ["Can my child have their own account?","Learners under 13 are managed from a parent account. Parents book, pay and see every lesson link."],
+    ["What if I need to cancel?","Cancel from My lessons. Cancellations made at least 24 hours before the lesson are refunded in full."],
+    ["How do teacher accounts work?","Teachers create an account with their email, confirm it, and fill in a profile. Each account is reviewed before the teacher's profile and classes become public."]
+  ];
+  return `<div class="wrap page"><h2>Help and support</h2>
+    <div class="cols"><div>${faq.map(([q,a])=>`<details><summary>${q}</summary><p style="margin:8px 0 0">${a}</p></details>`).join("")}</div>
+    <form class="box" onsubmit="event.preventDefault();this.reset();toast('Message sent. We reply within 24 hours.')">
+      <h3>Contact support</h3>
+      <label class="field">Email<input type="email" required autocomplete="email"></label>
+      <label class="field" style="margin-top:8px">Topic<select><option>Booking or payment</option><option>Joining a lesson</option><option>Parent account</option><option>Teaching on Everyclass</option><option>Something else</option></select></label>
+      <label class="field" style="margin-top:8px">Message<textarea rows="4" required></textarea></label>
+      <button class="btn" style="margin-top:12px">Send message</button>
+    </form></div></div>`;
+}
+
+/* ---------- router ---------- */
+function setRole(r){ S.role=r; $("#role").value=r; save(); toast("Viewing as "+r); if(!$("#dlg").open) render() }
+function render(){
+  const h=location.hash.replace(/^#\/?/,""), [r,arg]=h.split("/");
+  const app=$("#app");
+  app.innerHTML = r==="classes"?browse(): r==="teacher"?profile(arg): r==="learning"?learning(): r==="studio"?studio(): r==="help"?help(): home();
+  document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
+  if(r==="classes") renderResults();
+}
+window.addEventListener("hashchange",()=>{render();window.scrollTo(0,0)});
+$("#role").value=S.role; $("#role").onchange=e=>setRole(e.target.value);
+$("#tzname").textContent=TZ;
+$("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="accounts.js"></script>
+
+</body>
+</html>
