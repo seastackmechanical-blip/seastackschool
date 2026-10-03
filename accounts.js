@@ -5,7 +5,8 @@ const SB_KEY = "sb_publishable_J6pwCLXOBOp2hXlI183_dw_m06F6Jhh";
 const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
 const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"signin", msg:"", err:"", recovery:false, filter:"pending", removing:null,
   learner:null, children:[], lrows:null, kind:"student", adminTab:"teachers", removingChild:null,
-  bookings:[], links:{}, cancelling:null, brows:null, bfilter:"upcoming"};
+  bookings:[], links:{}, cancelling:null, brows:null, bfilter:"upcoming",
+  ready:false, visits:null, vdays:30, vloading:false};
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -69,7 +70,7 @@ async function loadAdmin(){
   const [r,l,b] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings")]);
   if(r.error || l.error || b.error) toast((r.error||l.error||b.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data }
 }
-async function refresh(){ await loadMe(); await loadPublic(); chrome(); render() }
+async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=true; render() }
 
 /* ---------- header ---------- */
 function chrome(){
@@ -251,6 +252,7 @@ function adminPage(){
   if(!A.admin) return `<div class="wrap page"><h2>Manage accounts</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/account">Sign in</a>`}</div></div>`;
   if(A.adminTab==="learners") return adminLearners();
   if(A.adminTab==="bookings") return adminBookings();
+  if(A.adminTab==="visits") return adminVisits();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -286,7 +288,7 @@ function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}</div>`;
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("visits","Visits")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -475,6 +477,61 @@ async function bookReal(){
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
 }
 
+/* ---------- visits: where people come from and when (no cookies, no IP addresses) ---------- */
+const ROUTES = ["classes","learning","studio","help","teacher","account","admin"];
+const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts"};
+let lastTracked = null, memSid = null;
+function trackVisit(r){
+  if(!sb || !A.ready || A.admin) return;          // the admin's own visits are not counted
+  const path = "/" + (ROUTES.includes(r) ? r : "");
+  if(path===lastTracked) return;
+  lastTracked = path;
+  let sid = null, landing = false;
+  try{
+    sid = sessionStorage.getItem("ss:sid");
+    if(!sid){ sid = uid()+uid()+uid(); sessionStorage.setItem("ss:sid", sid); landing = true }
+  }catch(e){ landing = !memSid; sid = memSid || (memSid = uid()+uid()+uid()) }
+  const args = {p_session:sid, p_landing:landing, p_path:path};
+  if(landing){
+    let ref = "";
+    try{ const u = new URL(document.referrer); if(u.host!==location.host) ref = u.host.replace(/^www\./,"") }catch(e){}
+    const q = new URLSearchParams(location.search);
+    args.p_referrer = ref || null; args.p_source = q.get("utm_source"); args.p_medium = q.get("utm_medium"); args.p_campaign = q.get("utm_campaign");
+  }
+  sb.rpc("log_visit", args).then(()=>{}, ()=>{});
+}
+async function loadVisits(){
+  A.vloading = true;
+  const r = await sb.rpc("admin_visit_stats", {p_days:A.vdays, p_tz:TZ});
+  A.vloading = false;
+  A.visits = r.error ? {error:r.error.message} : r.data;
+  render();
+}
+function adminVisits(){
+  if(!A.visits){ if(!A.vloading) loadVisits(); return `<div class="wrap page">${adminHead()}<p class="muted">Loading visits…</p></div>` }
+  const v = A.visits;
+  if(v.error) return `<div class="wrap page">${adminHead()}<div class="notice bad">The visit numbers could not be loaded: ${esc(v.error)}</div><button class="btn sm" onclick="A.visits=null;render()">Try again</button></div>`;
+  const chip = (d,l) => `<button class="chip" aria-pressed="${A.vdays===d}" onclick="A.vdays=${d};A.visits=null;render()">${l}</button>`;
+  const max = Math.max(1, ...v.by_day.map(d=>d.visits));
+  const country = c => { if(!c || c==="??") return "Unknown"; try{ return new Intl.DisplayNames(undefined,{type:"region"}).of(c) || c }catch(e){ return c } };
+  const cap = s => s ? s[0].toUpperCase()+s.slice(1) : "Unknown";
+  const list = (title,rows,key,fmt) => `<div class="box" style="margin:0"><h3>${title}</h3>${rows.length?`<table style="min-width:0"><tbody>${rows.map(r=>`<tr><td>${esc(fmt?fmt(r.name):r.name)}</td><td style="text-align:right;font-variant-numeric:tabular-nums"><b>${r[key]}</b></td></tr>`).join("")}</tbody></table>`:`<p class="muted small" style="margin:0">Nothing yet.</p>`}</div>`;
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Where visitors come from and when. A visit is one browser tab session. Your own admin visits are not counted. No cookies, names or IP addresses are stored.</p>
+    <div class="chips" style="margin-bottom:14px">${chip(7,"Last 7 days")}${chip(30,"Last 30 days")}${chip(90,"Last 90 days")}<button class="chip" onclick="A.visits=null;render()">Refresh</button></div>
+    <div class="box"><h3>${v.visits} ${v.visits===1?"visit":"visits"} · ${v.views} page ${v.views===1?"view":"views"}</h3>
+      ${v.by_day.length?`<div class="scroll"><table style="min-width:420px"><thead><tr><th>Day</th><th>Visits</th><th style="width:45%"><span class="sr">Bar</span></th><th>Page views</th></tr></thead><tbody>
+      ${v.by_day.slice().reverse().map(d=>`<tr><td>${new Date(d.day+"T12:00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}</td><td style="font-variant-numeric:tabular-nums"><b>${d.visits}</b></td><td><div style="height:10px;border-radius:5px;background:var(--pen);width:${Math.max(2,Math.round(d.visits/max*100))}%"></div></td><td style="font-variant-numeric:tabular-nums">${d.views}</td></tr>`).join("")}</tbody></table></div>`
+      :`<p class="muted" style="margin:0">No visits recorded in this period yet.</p>`}</div>
+    <div class="grid2">${list("Where visits came from",v.referrers,"visits")}${list("Countries",v.countries,"visits",country)}${list("Pages viewed",v.pages,"views",p=>PAGE_NAMES[p]||p)}${list("Devices",v.devices,"visits",cap)}</div>
+    <div class="box" style="margin-top:16px"><h3>Latest visits</h3>
+      ${v.recent.length?`<div class="scroll"><table style="min-width:640px"><thead><tr><th>When</th><th>Came from</th><th>Country</th><th>Device</th><th>First page</th></tr></thead><tbody>
+      ${v.recent.map(r=>{ const w=new Date(r.at); return `<tr><td>${fmtDay(w)}, ${fmtTime(w)}</td><td>${esc(r.source||r.referrer||"Direct")}${r.campaign?`<div class="small muted">Campaign: ${esc(r.campaign)}</div>`:""}</td><td>${esc(country(r.country))}</td><td>${cap(r.device)}</td><td>${esc(PAGE_NAMES[r.path]||r.path)}</td></tr>` }).join("")}</tbody></table></div>`
+      :`<p class="muted" style="margin:0">No visits yet.</p>`}</div>
+  </div>`;
+}
+
 /* ---------- router + start ---------- */
 const baseRender = render;
 render = function(){
@@ -483,6 +540,7 @@ render = function(){
     $("#app").innerHTML = r==="admin" ? adminPage() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
+  trackVisit(r);
 };
 (function start(){
   S.myClasses=[]; if(S.role==="teacher"){ S.role="learner"; $("#role").value="learner" } save();
