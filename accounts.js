@@ -5,7 +5,7 @@ const SB_KEY = "sb_publishable_J6pwCLXOBOp2hXlI183_dw_m06F6Jhh";
 const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
 const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"signin", msg:"", err:"", recovery:false, filter:"pending", removing:null,
   learner:null, children:[], lrows:null, kind:"student", adminTab:"teachers", removingChild:null,
-  bookings:[], links:{}, cancelling:null};
+  bookings:[], links:{}, cancelling:null, brows:null, bfilter:"upcoming"};
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -43,7 +43,7 @@ async function loadPublic(){
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
-  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={};
+  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.brows=null;
   if(!A.user) return;
   const [t,adm,c,l,k,b,ln] = await Promise.all([
     sb.from("teachers").select("*").eq("id",A.user.id).maybeSingle(),
@@ -66,8 +66,8 @@ function syncLearner(){
   if(A.learner.role==="parent") S.children = A.children.map(k=>({id:k.id,name:k.first_name,age:k.age}));
 }
 async function loadAdmin(){
-  const [r,l] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners")]);
-  if(r.error || l.error) toast((r.error||l.error).message); else { A.rows = r.data; A.lrows = l.data }
+  const [r,l,b] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings")]);
+  if(r.error || l.error || b.error) toast((r.error||l.error||b.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data }
 }
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); render() }
 
@@ -250,6 +250,7 @@ startTeaching = function(){ A.kind="teacher"; if(!A.user){ A.mode="signup"; A.er
 function adminPage(){
   if(!A.admin) return `<div class="wrap page"><h2>Manage accounts</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/account">Sign in</a>`}</div></div>`;
   if(A.adminTab==="learners") return adminLearners();
+  if(A.adminTab==="bookings") return adminBookings();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -285,7 +286,7 @@ function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}</div>`;
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -303,6 +304,28 @@ function adminLearners(){
         <div class="acts">${r.status==="active"?`<button class="btn sm ghost" onclick="setLearnerStatus('${r.id}','suspended')">Suspend</button>`:`<button class="btn sm" onclick="setLearnerStatus('${r.id}','active')">Restore</button>`}</div></td>
     </tr>`).join("")}</tbody></table></div>`
     :`<div class="empty">No students or parents have signed up yet.</div>`}
+  </div>`;
+}
+function adminBookings(){
+  const rows=A.brows||[], now=Date.now(), at=b=>Date.parse(b.starts_at);
+  const sets={upcoming:rows.filter(b=>b.status==="booked" && at(b)>now).sort((x,y)=>at(x)-at(y)), past:rows.filter(b=>b.status==="booked" && at(b)<=now), cancelled:rows.filter(b=>b.status==="cancelled"), all:rows};
+  const list=sets[A.bfilter]||sets.upcoming;
+  const chip=(k,l)=>`<button class="chip" aria-pressed="${A.bfilter===k}" onclick="A.bfilter='${k}';render()">${l} (${sets[k].length})</button>`;
+  const who={student:"the student",parent:"the parent",teacher:"the teacher",admin:"an admin"};
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Every lesson booked on SeastackSchool. Times are shown in your time zone (${esc(TZ)}). Cancelling a booking here frees the seat and emails the teacher and the family.</p>
+    <div class="chips" style="margin-bottom:14px">${chip("upcoming","Upcoming")}${chip("past","Past")}${chip("cancelled","Cancelled")}${chip("all","All")}</div>
+    ${list.length?`<div class="scroll"><table class="admin" style="min-width:820px"><thead><tr><th>Lesson time</th><th>Class</th><th>For</th><th>Booked by</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    ${list.map(b=>{ const when=new Date(b.starts_at), upcoming=b.status==="booked" && at(b)>now; return `<tr>
+      <td><b>${fmtDay(when)}</b><div class="small">${fmtTime(when)}</div></td>
+      <td><b>${esc(b.class_title)}</b><div class="small">${esc(b.teacher_name||"(no name)")} · ${esc(b.teacher_email)}</div></td>
+      <td>${esc(b.attendee_name)}</td>
+      <td>${esc(b.learner_name||"(no name)")} <span class="small muted">(${b.learner_role})</span><div class="small">${esc(b.learner_email)}</div><div class="small muted">Booked ${new Date(b.created_at).toLocaleDateString()}</div></td>
+      <td><span class="tag ${b.status==="cancelled"?"bad":upcoming?"ok":"group"}">${b.status==="cancelled"?"Cancelled":upcoming?"Booked":"Took place"}</span>${b.status==="cancelled"?`<div class="small muted" style="margin-top:4px">by ${who[b.cancelled_by_kind]||"someone"}, ${new Date(b.cancelled_at).toLocaleDateString()}</div>`:""}${b.emailed?"":`<div class="small muted" style="margin-top:4px">No booking email sent</div>`}</td>
+      <td>${upcoming?`<button class="btn sm ghost" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button>`:""}</td>
+    </tr>` }).join("")}</tbody></table></div>${rows.length>=500?`<p class="small muted">Showing the 500 most recent bookings.</p>`:""}`
+    :`<div class="empty">${rows.length?"No bookings in this list.":"No lessons have been booked yet."}</div>`}
   </div>`;
 }
 async function setLearnerStatus(id,status){
