@@ -254,7 +254,7 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
   </div>
 </header>
 <main id="app"></main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Times show in your time zone: <b id="tzname"></b>. <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a></div></footer>
+<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Times show in your time zone: <b id="tzname"></b>. <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a></div></footer>
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -457,7 +457,7 @@ function card(c){
     <div>
       <span class="tag ${c.type}">${typeLabel(c)}</span> ${c.mine?"":DEMO}
       <h3><button onclick="openBooking('${c.id}')">${esc(c.title)}</button></h3>
-      <div class="small"><a href="#/teacher/${t.id}">${esc(t.name)}</a> ${ratingLabel(t.id)}${t.city?` <span class="muted">from ${esc(t.city)}</span>`:""}</div>
+      <div class="small"><a href="#/teacher/${t.id}">${esc(t.name)}</a> ${ratingLabel(t.id)}${t.city?` <span class="muted">from ${esc(t.city)}</span>`:""}${schoolTag(t)}</div>
       <div class="meta"><span>${esc(c.subject)}</span><span>Taught in ${esc(c.lang)}</span><span>${ageLabel(c.ages)}</span><span>${c.level}</span><span>${c.mins} min</span></div>
       <div class="next">${nx?`Next: <b>${fmtDay(nx.start)}, ${fmtTime(nx.start)}</b>`:"No open times in the next two weeks"}</div>
     </div>
@@ -477,7 +477,7 @@ function profile(id){
       <div class="avatar lg" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
       <div><h2 style="margin:0">${esc(t.name)}</h2>
         ${t.real||t.id==="me"?"":`<div class="small muted" style="margin:4px 0">${DEMO} Sample profile that shows how a teacher page looks.</div>`}
-        <div class="muted">${[t.city?"Teaching from "+esc(t.city):"", t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}</div>
+        <div class="muted">${[t.city?"Teaching from "+esc(t.city):"", t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}${schoolTag(t)}</div>
         <div>${rv.length?`<span class="stars">${starStr(rating(id))}</span> ${rating(id).toFixed(1)} from ${rv.length} reviews`:"New teacher, no reviews yet"}</div></div>
     </div>
     <div class="cols">
@@ -710,6 +710,7 @@ function help(){
     ["Are the teachers and classes real?","Teachers, classes and reviews marked Demo are samples that show how the platform works. Listings without a Demo tag belong to real teachers whose accounts have been approved, and can be booked with a free student or parent account. Online payment is not open yet, so nothing is charged."],
     ["What's the difference between a private lesson and a small group class?","A private lesson is one student, one-to-one with the teacher. A small group class has a maximum size the teacher sets, shown on each listing with the places left."],
     ["Who can book?","Students aged 13 and over book for themselves. Parents book for their children from a parent account and choose which child each lesson is for."],
+    ["Can a school use SeastackSchool?","Yes. A school registers, uploads documents that show it is registered or licensed, and is reviewed before its page goes public. An approved school invites its own teachers and approves them, and their classes appear under the school's name. A school's page says its documents were reviewed by SeastackSchool; that is not the same as government accreditation."],
     ["How does the affiliate program work?","Affiliates share a personal link. Teachers, students and parents who sign up through it within 90 days count as that affiliate's referrals. Commission will be a share of what SeastackSchool collects from those accounts, and it starts when online payment opens. Affiliate accounts are reviewed before they are activated."],
     ["What does SeastackSchool record about my visit?","The page you opened, the website you came from, your country, whether you used a phone or a computer, and the time. This helps us see how people find the site. No cookies, names or IP addresses are stored for it."],
     ["Can my child have their own account?","Learners under 13 are managed from a parent account. Parents book, pay and see every lesson link."],
@@ -742,7 +743,7 @@ $("#tzname").textContent=TZ;
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=9"></script>
+<script src="accounts.js?v=10"></script>
 
 </body>
 </html>

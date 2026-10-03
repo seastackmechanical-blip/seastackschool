@@ -115,6 +115,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
   <nav class="main" aria-label="Main">
     <a href="${BASE}classes/">Classes</a>
     <a href="${BASE}teachers/">Teachers</a>
+    <a href="${BASE}schools/">Schools</a>
     <a href="${BASE}#/help">Help</a>
   </nav>
   <a class="btn teach-nav" href="${BASE}#/studio">Start teaching ↗</a>
@@ -135,13 +136,16 @@ ${track(trackPath)}
 }
 
 /* ---------- build ---------- */
-const [teachers, classes] = await Promise.all([
+const [teachers, classes, schools] = await Promise.all([
   get("teachers", "select=*&status=eq.approved&order=created_at"),
   get("classes", "select=*&order=created_at"),
+  get("schools", "select=*&status=eq.approved&order=name"),
 ]);
 const tById = new Map(teachers.map((t) => [t.id, t]));
 const live = classes.filter((c) => tById.has(c.teacher_id));
 const tSlug = (t) => slugify(t.full_name, t.id), cSlug = (c) => slugify(c.title, c.id);
+const sById = new Map(schools.map((s) => [s.id, s])), sSlug = (s) => slugify(s.name, s.id);
+const schoolLink = (t) => { const s = sById.get(t.school_id); return s ? ` · <a href="${BASE}schools/${sSlug(s)}/">${esc(s.name)}</a>` : ""; };
 
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
@@ -200,7 +204,7 @@ for (const t of teachers) {
     jsonld: { "@context": "https://schema.org", "@type": "ProfilePage", mainEntity: { "@type": "Person", name, description: t.intro || undefined, knowsLanguage: t.languages?.length ? t.languages : undefined, url: `${SITE}teachers/${tSlug(t)}/` } },
     body: `<div class="crumbs"><a href="${BASE}teachers/">Teachers</a></div>
 <div class="profile-head"><div class="avatar lg" style="background:#C9D6F2" aria-hidden="true">${esc(initials(name))}</div>
-  <div><h1 style="margin:0">${esc(name)}</h1><div class="muted">${esc([t.city ? "Teaching from " + t.city : "", t.years_experience ? t.years_experience + " years' experience" : ""].filter(Boolean).join(" · "))}</div></div></div>
+  <div><h1 style="margin:0">${esc(name)}</h1><div class="muted">${esc([t.city ? "Teaching from " + t.city : "", t.years_experience ? t.years_experience + " years' experience" : ""].filter(Boolean).join(" · "))}${schoolLink(t)}</div></div></div>
 <div class="cols"><div>
   <div class="box">${t.intro ? `<h2 style="font-size:22px">About me</h2><p>${esc(t.intro)}</p>` : ""}${t.experience ? `<h2 style="font-size:22px">Experience</h2><p>${esc(t.experience)}</p>` : ""}
     ${t.languages?.length ? `<h2 style="font-size:22px">Teaching languages</h2><div class="chips">${t.languages.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}
@@ -214,6 +218,35 @@ for (const t of teachers) {
   }));
 }
 
+for (const s of schools) {
+  const ts = teachers.filter((t) => t.school_id === s.id), cs = live.filter((c) => ts.some((t) => t.id === c.teacher_id));
+  const where = [s.city, s.country].filter(Boolean).join(", ");
+  const desc = `${s.name}${where ? ", " + where : ""}: live online classes on SeastackSchool. ${s.about ? s.about.slice(0, 150) : "See the school's teachers and classes and book a lesson."}`;
+  urls.push(page({
+    file: `schools/${sSlug(s)}/index.html`, trackPath: `/schools/${sSlug(s)}`,
+    title: `${s.name} | Online school | SeastackSchool`, desc,
+    jsonld: { "@context": "https://schema.org", "@type": "EducationalOrganization", name: s.name, description: s.about || undefined, url: `${SITE}schools/${sSlug(s)}/`, sameAs: s.website || undefined },
+    body: `<div class="crumbs"><a href="${BASE}schools/">Schools</a></div>
+<div class="profile-head"><div class="avatar lg" style="background:#eee9fb" aria-hidden="true">${esc(initials(s.name))}</div>
+  <div><h1 style="margin:0">${esc(s.name)}</h1><div class="muted">${esc(where)}${s.website ? ` · <a href="${esc(s.website)}" rel="noopener noreferrer">Website</a>` : ""}</div>
+  <div class="small muted">Documents reviewed by SeastackSchool${s.reviewed_at ? " on " + esc(new Date(s.reviewed_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })) : ""}</div></div></div>
+<div class="cols"><div>
+  ${s.about ? `<div class="box"><h2 style="font-size:22px">About the school</h2><p style="margin:0;white-space:pre-line">${esc(s.about)}</p></div>` : ""}
+  <h2 style="font-size:22px">Classes</h2>
+  ${cs.length ? `<div class="list">${cs.map(classCard).join("")}</div>` : `<div class="empty">No classes listed yet.</div>`}
+</div><div>
+  <div class="box"><h2 style="font-size:22px">Teachers</h2>${ts.length ? ts.map((t) => `<div class="review"><a href="${BASE}teachers/${tSlug(t)}/"><b>${esc(t.full_name || "Teacher")}</b></a><div class="small muted">${esc((t.languages || []).join(", "))}</div></div>`).join("") : `<p class="muted" style="margin:0">No teachers listed yet.</p>`}</div>
+  <div class="box"><h2 style="font-size:22px">Book a lesson</h2><p class="muted" style="margin:0 0 14px">See lesson times in your own time zone and book with a free student or parent account.</p><a class="btn" href="${BASE}#/school/${s.id}">View classes and book ↗</a></div>
+</div></div>`,
+  }));
+}
+urls.push(page({
+  file: "schools/index.html", trackPath: "/schools-list",
+  title: "Online schools | SeastackSchool", desc: "Schools on SeastackSchool. Each school's documents are reviewed before its page and teachers go public.",
+  body: `<h1>Schools</h1><p class="lead">Each school's documents are reviewed before its page and teachers go public.</p>
+${schools.length ? `<div class="grid2" style="margin-top:20px">${schools.map((s) => { const n = teachers.filter((t) => t.school_id === s.id).length; return `<a class="res linkcard" href="${BASE}schools/${sSlug(s)}/"><b>${esc(s.name)}</b><span class="small muted">${esc([s.city, s.country].filter(Boolean).join(", "))}</span><span class="small">${n} ${n === 1 ? "teacher" : "teachers"}</span></a>`; }).join("")}</div>`
+    : `<div class="empty" style="margin-top:20px"><h3>No schools are listed yet</h3><p class="muted">If you run a school, you can register it and list your teachers and classes.</p><a class="btn" href="${BASE}#/account">Register a school</a></div>`}`,
+}));
 urls.push(page({
   file: "classes/index.html", trackPath: "/classes-list",
   title: "Online classes | SeastackSchool", desc: "Live online classes on SeastackSchool: private lessons and small group classes with teachers anywhere, shown in your own time zone.",

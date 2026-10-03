@@ -7,7 +7,9 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   learner:null, children:[], lrows:null, kind:"student", adminTab:"teachers", removingChild:null,
   bookings:[], links:{}, cancelling:null, brows:null, bfilter:"upcoming",
   ready:false, visits:null, vdays:30, vloading:false,
-  aff:null, adash:null, arows:null, afilter:"pending"};
+  aff:null, adash:null, arows:null, afilter:"pending",
+  schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
+  srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false};
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -46,26 +48,36 @@ function storedRef(){
   }catch(e){}
   sb.rpc("log_referral_click", {p_code:code, p_path:"/"+routeName().slice(0,40)}).then(()=>{}, ()=>{});
 })();
+// A school's invitation link carries ?school=CODE: remember it for the teacher sign-up form.
+function schoolCodeFromLink(){ try{ return sessionStorage.getItem("ss:school") || "" }catch(e){ return "" } }
+(function captureSchoolCode(){
+  const code = (new URLSearchParams(location.search).get("school") || "").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,12);
+  if(code.length < 6) return;
+  try{ sessionStorage.setItem("ss:school", code) }catch(e){}
+  A.kind = "teacher"; A.mode = "signup";
+})();
 const slugify = (s,id) => (String(s||"").normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60) || "page") + "-" + String(id).slice(0,8);
 
 /* ---------- data ---------- */
 async function loadPublic(){
   if(!sb) return;
-  const [t,c,n] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts")]);
+  const [t,c,n,sch] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name")]);
   if(t.error || c.error) return;
+  A.schools = sch.data || [];
   for(const k in BOOKED) delete BOOKED[k];
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
   for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
   const ok = new Set();
-  t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,color:"#C9D6F2",
+  t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,color:"#C9D6F2",
     years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience}) });
   c.data.filter(x=>ok.has(x.teacher_id)).forEach(x=>CLASSES.push(toClass(x)));
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
   A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
+  A.school=null; A.schoolPriv=null; A.members=[]; A.mclasses=[]; A.docs=[]; A.mySchool=null; A.srows=null; A.sdocs={};
   if(!A.user) return;
-  const [t,adm,c,l,k,b,ln,af] = await Promise.all([
+  const [t,adm,c,l,k,b,ln,af,sc,sp] = await Promise.all([
     sb.from("teachers").select("*").eq("id",A.user.id).maybeSingle(),
     sb.rpc("is_admin"),
     sb.from("classes").select("*").eq("teacher_id",A.user.id).order("created_at"),
@@ -73,12 +85,17 @@ async function loadMe(){
     sb.from("children").select("*").eq("parent_id",A.user.id).order("created_at"),
     sb.from("bookings").select("*").order("starts_at"),
     sb.from("class_links").select("*"),
-    sb.from("affiliates").select("*").eq("id",A.user.id).maybeSingle()]);
+    sb.from("affiliates").select("*").eq("id",A.user.id).maybeSingle(),
+    sb.from("schools").select("*").eq("id",A.user.id).maybeSingle(),
+    sb.from("school_private").select("*").eq("id",A.user.id).maybeSingle()]);
   A.teacher = t.data || null; A.admin = adm.data === true; A.classes = c.data || [];
   A.learner = l.data || null; A.children = k.data || [];
   A.bookings = b.data || []; (ln.data||[]).forEach(x=>{ A.links[x.class_id]=x.url });
   A.aff = af.data || null;
   if(A.aff){ const d = await sb.rpc("my_affiliate_dashboard"); A.adash = d.error ? null : d.data }
+  A.school = sc.data || null; A.schoolPriv = sp.data || null;
+  if(A.school) await loadSchoolExtras();
+  if(A.teacher && A.teacher.school_id){ const r = await sb.from("schools").select("id,name,status").eq("id",A.teacher.school_id).maybeSingle(); A.mySchool = r.data || null }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -90,6 +107,7 @@ function syncLearner(){
 }
 async function loadAdmin(){
   const [r,l,b,f] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings"), sb.rpc("admin_list_affiliates")]);
+  const sr = await sb.rpc("admin_list_schools"); if(!sr.error) A.srows = sr.data;
   if(r.error || l.error || b.error || f.error) toast((r.error||l.error||b.error||f.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data; A.arows = f.data }
 }
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=true; render() }
@@ -98,8 +116,10 @@ async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=
 function chrome(){
   let a = $("#acct");
   if(!a){ a=document.createElement("a"); a.id="acct"; a.className="btn sm ghost"; $(".top .wrap").appendChild(a) }
-  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : "#/account";
-  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : A.aff ? "Affiliate dashboard" : "My account";
+  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
+  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : A.aff ? "Affiliate dashboard" : A.school ? "My school" : "My account";
+  let sl = $("#navschools");
+  if(!sl){ sl=document.createElement("a"); sl.id="navschools"; sl.href="#/schools"; sl.dataset.r="schools"; sl.textContent="Schools"; const nav=$("nav.main"); nav.insertBefore(sl, nav.querySelector('[data-r="help"]')) }
   a.onclick = A.user ? null : () => { A.mode="signin"; A.err=""; A.msg="" };
   let n = $("#navadmin");
   if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
@@ -115,8 +135,10 @@ function authPage(){
     <p class="muted">${up?"Choose the kind of account you need. Accounts are free.":fg?"Enter your email and we'll send you a link to set a new password.":"Students, parents and teachers all sign in here."}</p>
     ${A.msg?`<div class="ok" style="margin-bottom:12px">${esc(A.msg)}</div>`:""}
     <form id="authf" novalidate onsubmit="event.preventDefault();authSubmit(this)" style="display:flex;flex-direction:column;gap:10px">
-      ${up?`<fieldset class="field" style="border:0;padding:0;margin:0"><legend>I am a…</legend><div class="choices">${[["student","Student","I'm 13 or older and book lessons for myself."],["parent","Parent","I book lessons for my children."],["teacher","Teacher","I want to offer lessons. Teacher accounts are reviewed before going public."],["affiliate","Affiliate","I want to refer teachers and families with my own link. Affiliate accounts are reviewed before they are activated."]].map(([k,l,d])=>`<label class="choice"><input type="radio" name="kind" value="${k}" id="au-kind-${k}" ${A.kind===k?"checked":""} onchange="A.kind=this.value;$('#au-pitchwrap').hidden=this.value!=='affiliate'"><span><b>${l}</b>${d}</span></label>`).join("")}</div></fieldset>`:""}
+      ${up?`<fieldset class="field" style="border:0;padding:0;margin:0"><legend>I am a…</legend><div class="choices">${[["student","Student","I'm 13 or older and book lessons for myself."],["parent","Parent","I book lessons for my children."],["teacher","Teacher","I want to offer lessons. Teacher accounts are reviewed before going public."],["school","School","I run a school and want to list its teachers and classes. Schools upload documents and are reviewed before going public."],["affiliate","Affiliate","I want to refer teachers and families with my own link. Affiliate accounts are reviewed before they are activated."]].map(([k,l,d])=>`<label class="choice"><input type="radio" name="kind" value="${k}" id="au-kind-${k}" ${A.kind===k?"checked":""} onchange="A.kind=this.value;kindFields()"><span><b>${l}</b>${d}</span></label>`).join("")}</div></fieldset>`:""}
       ${up?`<label class="field">Full name<input name="full_name" id="au-name" required maxlength="120" autocomplete="name"></label>
+      <label class="field" id="au-schoolwrap" ${A.kind==="school"?"":"hidden"}>School name<input name="school_name" id="au-school" maxlength="140"></label>
+      <label class="field" id="au-codewrap" ${A.kind==="teacher"?"":"hidden"}>School code, if a school invited you (optional)<input name="school_code" id="au-code" maxlength="12" value="${esc(schoolCodeFromLink())}"></label>
       <label class="field" id="au-pitchwrap" ${A.kind==="affiliate"?"":"hidden"}>How will you tell people about SeastackSchool? (optional)<textarea name="pitch" id="au-pitch" rows="2" maxlength="600"></textarea></label>`:""}
       <label class="field">Email<input name="email" id="au-email" type="email" required autocomplete="email"></label>
       ${fg?"":`<label class="field">Password${up?" (at least 8 characters)":""}<input name="password" id="au-pass" type="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>`}
@@ -128,11 +150,16 @@ function authPage(){
     </p>
   </div></div>`;
 }
+function kindFields(){
+  const k=A.kind, set=(id,on)=>{ const e=$(id); if(e) e.hidden=!on };
+  set("#au-schoolwrap", k==="school"); set("#au-codewrap", k==="teacher"); set("#au-pitchwrap", k==="affiliate");
+}
 async function authSubmit(f){
   const btn=$("#authbtn"), errEl=$("#autherr"), label=btn.textContent, email=f.email.value.trim(), back=location.origin+location.pathname;
   // Every outcome shows a message in the form, and a failed attempt keeps what was typed.
   const fail = m => { errEl.textContent=m; btn.disabled=false; btn.textContent=label };
   if(A.mode==="signup" && !f.full_name.value.trim()) return fail("Enter your full name.");
+  if(A.mode==="signup" && f.kind.value==="school" && !f.school_name.value.trim()) return fail("Enter your school's name.");
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("Enter a valid email address, like name@example.com.");
   if(A.mode==="signup" && f.password.value.length<8) return fail("Choose a password with at least 8 characters.");
   if(A.mode==="signin" && !f.password.value) return fail("Enter your password.");
@@ -140,7 +167,7 @@ async function authSubmit(f){
   let error=null;
   try{
     if(A.mode==="signup"){
-      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null},emailRedirectTo:back}});
+      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null,school_name:f.kind.value==="school"?f.school_name.value.trim():null,school_code:f.kind.value==="teacher"?(f.school_code.value.trim()||null):null},emailRedirectTo:back}});
       error=r.error;
       if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
     } else if(A.mode==="forgot"){
@@ -185,7 +212,7 @@ studio = function(){
   const local = `<p class="small muted">This tool is saved in this browser only for now.</p>`;
   return `<div class="wrap page">
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
-    ${statusBanner()}
+    ${statusBanner()}${teacherSchoolBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
     ${TAB==="profile"?profileForm():TAB==="list"?listings():TAB==="bookings"?teacherBookings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
@@ -195,6 +222,7 @@ function statusBanner(){
   return s==="approved" ? `<div class="ok" style="margin:12px 0">Your account is approved. Your profile and classes are public. <a href="#/teacher/${A.teacher.id}">See your public profile</a>
       <div class="small" style="margin-top:6px;overflow-wrap:anywhere">Your own page to share: <a href="${SITE_BASE}teachers/${slugify(A.teacher.full_name,A.teacher.id)}/">${esc(SITE_BASE)}teachers/${slugify(A.teacher.full_name,A.teacher.id)}/</a> (new and changed pages appear within about an hour)</div></div>`
     : s==="suspended" ? `<div class="notice bad">Your account is suspended, so your profile and classes are hidden. Contact support from the Help page.</div>`
+    : A.teacher.school_id ? `<div class="notice">You're waiting for your school to approve you. Fill in your profile and add your classes now; students will see them once the school approves you.</div>`
     : `<div class="notice">Your account is waiting for approval. Fill in your profile and add your classes now; students will see them once you're approved.</div>`;
 }
 function profileForm(){
@@ -279,6 +307,7 @@ function adminPage(){
   if(A.adminTab==="bookings") return adminBookings();
   if(A.adminTab==="visits") return adminVisits();
   if(A.adminTab==="affiliates") return adminAffiliates();
+  if(A.adminTab==="schools") return adminSchools();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -314,7 +343,7 @@ function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("visits","Visits")}</div>`;
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("visits","Visits")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -370,7 +399,7 @@ function accountPage(){
   if(!A.user) return authPage();
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.learner) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
-    <div class="notice">${A.teacher?`You're signed in with a teacher account. <a href="#/studio">Open the teacher studio</a>`:A.aff?`You're signed in with an affiliate account. <a href="#/partner">Open the affiliate dashboard</a>`:A.admin?`You're signed in with the admin account. <a href="#/admin">Manage accounts</a>`:"This account has no profile yet."}</div></div>`;
+    <div class="notice">${A.teacher?`You're signed in with a teacher account. <a href="#/studio">Open the teacher studio</a>`:A.school?`You're signed in with a school account. <a href="#/myschool">Open my school</a>`:A.aff?`You're signed in with an affiliate account. <a href="#/partner">Open the affiliate dashboard</a>`:A.admin?`You're signed in with the admin account. <a href="#/admin">Manage accounts</a>`:"This account has no profile yet."}</div></div>`;
   const L=A.learner, parent=L.role==="parent";
   return `<div class="wrap page">
     <div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
@@ -474,7 +503,7 @@ function showRealBooking(){
   const kids=parent?A.children.filter(k=>k.age>=c.ages[0] && k.age<=c.ages[1]):[];
   let block="";   // why this visitor can't book, if they can't
   if(!A.user) block=`To book this class, sign in or create a free student or parent account.<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/account" onclick="A.mode='signup';A.kind='student';$('#dlg').close()">Create an account</a><a class="btn sm ghost" href="#/account" onclick="A.mode='signin';$('#dlg').close()">Sign in</a></div>`;
-  else if(!A.learner) block=`Lessons are booked from a student or parent account. You're signed in with ${A.teacher?"a teacher":A.aff?"an affiliate":"the admin"} account.`;
+  else if(!A.learner) block=`Lessons are booked from a student or parent account. You're signed in with ${A.teacher?"a teacher":A.aff?"an affiliate":A.school?"a school":"the admin"} account.`;
   else if(A.learner.status!=="active") block="This account is suspended, so it can't book lessons.";
   else if(!parent && c.ages[1]<13) block="This class is for children under 13, so it's booked from a parent account.";
   else if(parent && !A.children.length) block=`Add your child to your account first. <a href="#/account" onclick="$('#dlg').close()">Open my account</a>`;
@@ -501,6 +530,196 @@ async function bookReal(){
   const who = parent ? (A.children.find(k=>k.id===RB.child)?.first_name||"your child") : (A.learner.full_name||"you");
   await loadMe(); await loadPublic();
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
+}
+
+/* ---------- schools: a school account, its documents, its teachers, its public page ---------- */
+const DOCS = () => sb.storage.from("school-docs");
+function schoolTag(t){
+  const s = t && t.school && A.schools.find(x=>x.id===t.school);
+  return s ? ` · <a href="#/school/${s.id}">${esc(s.name)}</a>` : "";
+}
+async function listDocs(folder){
+  const l = await DOCS().list(folder, {limit:50, sortBy:{column:"created_at", order:"asc"}});
+  const files = (l.data||[]).filter(f=>f.name && f.id);
+  if(!files.length) return [];
+  const paths = files.map(f=>folder+"/"+f.name);
+  const s = await DOCS().createSignedUrls(paths, 3600);
+  return files.map((f,i)=>({name:f.name.replace(/^\d+-/,""), path:paths[i], url:(s.data||[])[i]?.signedUrl || ""}));
+}
+async function loadSchoolExtras(){
+  const m = await sb.from("teachers").select("*").eq("school_id", A.user.id).order("created_at");
+  A.members = m.data || [];
+  const ids = A.members.map(x=>x.id);
+  A.mclasses = ids.length ? ((await sb.from("classes").select("*").in("teacher_id", ids)).data || []) : [];
+  A.docs = await listDocs(A.user.id);
+}
+function schoolDash(){
+  if(!sb) return `<div class="wrap page"><h2>My school</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
+  if(A.recovery) return newPasswordPage();
+  if(!A.user) return authPage();
+  const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
+  if(!A.school) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">My school</h2>${who}</div>
+    <div class="notice">This page is for school accounts. To register a school, create a separate school account with a different email.</div></div>`;
+  const s=A.school, p=A.schoolPriv||{contact_name:"",reviewer_note:"",join_code:""}, link=SITE_BASE+"?school="+p.join_code+"#/studio", now=Date.now();
+  const cids=new Set(A.mclasses.map(c=>c.id)), up=A.bookings.filter(b=>cids.has(b.class_id) && b.status==="booked" && Date.parse(b.starts_at)>now);
+  const pill=t=>`<span class="tag ${t.status==="approved"?"ok":t.status==="suspended"?"bad":"group"}">${t.status==="approved"?"Public":t.status==="suspended"?"Suspended":"Waiting for you"}</span>`;
+  return `<div class="wrap page">
+    <div class="results-head"><h2 style="margin:0">${esc(s.name||"My school")}</h2>${who}</div>
+    ${s.status==="approved"?`<div class="ok" style="margin:12px 0">Your school is approved${s.reviewed_at?`; documents reviewed on ${new Date(s.reviewed_at).toLocaleDateString()}`:""}. <a href="#/school/${s.id}">See your school's page</a></div>`
+      :s.status==="suspended"?`<div class="notice bad">Your school is suspended, so its page and the teachers it approved are hidden. Contact support from the Help page.</div>`
+      :`<div class="notice">Your school is waiting for review. Fill in the details below and upload your documents. Nothing is public until SeastackSchool has reviewed them.</div>`}
+    <div class="cols"><div>
+      <form class="box row" id="schoolf" novalidate onsubmit="event.preventDefault();saveSchool(this)">
+        <h3 style="grid-column:1/-1;margin:0">School details</h3>
+        <label class="field" style="grid-column:1/-1">School name<input name="name" id="sc-name" maxlength="140" value="${esc(s.name)}"></label>
+        <label class="field">Country<input name="country" id="sc-country" maxlength="80" value="${esc(s.country)}"></label>
+        <label class="field">City<input name="city" id="sc-city" maxlength="120" value="${esc(s.city)}"></label>
+        <label class="field" style="grid-column:1/-1">Website (optional)<input name="website" id="sc-web" maxlength="300" value="${esc(s.website)}" placeholder="https://"></label>
+        <label class="field" style="grid-column:1/-1">About the school (shown on your public page)<textarea name="about" id="sc-about" rows="4" maxlength="3000">${esc(s.about)}</textarea></label>
+        <label class="field" style="grid-column:1/-1">Contact person (not public)<input name="contact_name" id="sc-contact" maxlength="120" value="${esc(p.contact_name)}"></label>
+        <label class="field" style="grid-column:1/-1">Note to the reviewer about your documents (not public)<textarea name="reviewer_note" id="sc-note" rows="2" maxlength="2000">${esc(p.reviewer_note)}</textarea></label>
+        <button class="btn" style="grid-column:1/-1;justify-self:start">Save details</button>
+      </form>
+      <div class="box"><h3>Documents</h3>
+        <p class="muted small">Upload the documents that show your school is registered or licensed. Only you and SeastackSchool can open them; they are never shown to visitors.</p>
+        ${A.docs.length?A.docs.map((d,i)=>`<div class="lesson"><span style="overflow-wrap:anywhere">${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a>`:esc(d.name)}</span><button class="btn ghost sm" onclick="dropDoc(${i})">${A.removingDoc===d.path?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No documents uploaded yet.</div>`}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px"><input type="file" id="docfile" accept=".pdf,.jpg,.jpeg,.png" aria-label="Choose a document"><button class="btn sm" id="docbtn" onclick="uploadDoc()">Upload</button></div>
+        <p class="small muted" style="margin:8px 0 0">PDF, JPG or PNG, up to 10 MB each, up to 10 files.</p></div>
+    </div><div>
+      <div class="box"><h3>Your teachers</h3>
+        <p class="muted small">Send teachers this link. They create a teacher account through it and appear here for you to approve. ${s.status==="approved"?"":"You can approve them once your school is approved."}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="reflink" readonly value="${esc(link)}" aria-label="Invitation link for teachers" style="flex:1;min-width:200px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn sm" onclick="copyRef()">Copy link</button></div>
+        <p class="small muted" style="margin:8px 0 12px">School code: <b>${esc(p.join_code)}</b>. A teacher who already has an account can enter it in their teacher studio.</p>
+        ${A.members.length?A.members.map(t=>`<div class="lesson"><div><b>${esc(t.full_name||"(no name yet)")}</b> ${pill(t)}<div class="small muted">${(n=>n+" "+(n===1?"class":"classes"))(A.mclasses.filter(c=>c.teacher_id===t.id).length)}${t.city?" · "+esc(t.city):""}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${t.status==="pending" && s.status==="approved"?`<button class="btn sm" onclick="memberAction('${t.id}','approve')">Approve</button>`:""}<button class="btn ghost sm" onclick="memberAction('${t.id}','remove')">${A.removingMember===t.id?"Confirm remove":"Remove"}</button></div></div>`).join("")
+        :`<div class="empty">No teachers have joined yet.</div>`}</div>
+      <div class="box"><h3>Upcoming bookings</h3>
+        ${up.length?up.map(b=>{ const c=A.mclasses.find(x=>x.id===b.class_id), t=A.members.find(x=>x.id===c.teacher_id), w=new Date(b.starts_at); return `<div class="lesson"><div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(t?t.full_name:"")} · for ${esc(b.attendee_name)}</div></div></div>` }).join("")
+        :`<p class="muted" style="margin:0">No upcoming bookings in your teachers' classes yet.</p>`}</div>
+    </div></div>
+  </div>`;
+}
+async function saveSchool(f){
+  const name=f.name.value.trim(); let web=f.website.value.trim();
+  if(!name) return toast("Enter your school's name");
+  if(web && !/^https?:\/\//i.test(web)) web="https://"+web;
+  if(web && !/^https?:\/\/\S+$/.test(web)) return toast("The website address doesn't look right");
+  const a = await sb.from("schools").update({name,country:f.country.value.trim(),city:f.city.value.trim(),website:web,about:f.about.value.trim()}).eq("id",A.user.id).select().maybeSingle();
+  if(a.error || !a.data) return toast(a.error?.message || "Your school details could not be saved");
+  const b = await sb.from("school_private").update({contact_name:f.contact_name.value.trim(),reviewer_note:f.reviewer_note.value.trim()}).eq("id",A.user.id).select().maybeSingle();
+  if(b.error) return toast(b.error.message);
+  A.school=a.data; if(b.data) A.schoolPriv=b.data; await loadPublic(); toast("School details saved"); render();
+}
+async function uploadDoc(){
+  const file=$("#docfile").files[0], btn=$("#docbtn");
+  if(!file) return toast("Choose a file first");
+  if(A.docs.length>=10) return toast("You can upload up to 10 documents. Remove one first.");
+  if(file.size>10*1024*1024) return toast("That file is larger than 10 MB");
+  if(!["application/pdf","image/jpeg","image/png"].includes(file.type)) return toast("Upload a PDF, JPG or PNG file");
+  btn.disabled=true; btn.textContent="Uploading…";
+  const path=A.user.id+"/"+Date.now()+"-"+file.name.replace(/[^A-Za-z0-9._-]/g,"_").slice(-80);
+  const r = await DOCS().upload(path, file, {contentType:file.type});
+  if(r.error){ toast(r.error.message); render(); return }
+  A.docs = await listDocs(A.user.id); toast("Document uploaded"); render();
+}
+async function dropDoc(i){
+  const d=A.docs[i]; if(!d) return;
+  if(A.removingDoc!==d.path){ A.removingDoc=d.path; render(); return }
+  A.removingDoc=null;
+  const r = await DOCS().remove([d.path]);
+  if(r.error) return toast(r.error.message);
+  A.docs = await listDocs(A.user.id); toast("Document removed"); render();
+}
+async function memberAction(id, action){
+  if(action==="remove" && A.removingMember!==id){ A.removingMember=id; render(); return }
+  A.removingMember=null;
+  const r = await sb.rpc("school_set_member",{p_teacher_id:id,p_action:action});
+  if(r.error){ toast(r.error.message); render(); return }
+  await loadSchoolExtras(); await loadPublic(); toast(action==="approve"?"Teacher approved":"Teacher removed from your school"); render();
+}
+// Shown in the teacher studio: which school the teacher belongs to, or a box to join one.
+function teacherSchoolBox(){
+  const t=A.teacher;
+  if(t.school_id) return `<div class="box" style="margin:12px 0"><div class="results-head" style="margin:0"><span>School: <b>${esc(A.mySchool?A.mySchool.name||"(unnamed school)":"your school")}</b>${A.mySchool&&A.mySchool.status!=="approved"?` <span class="small muted">(the school itself is still being reviewed)</span>`:""}</span>
+      <button class="btn ghost sm" onclick="leaveSchool()">${A.leaving?"Confirm leave":"Leave this school"}</button></div></div>`;
+  return `<details style="margin:12px 0"><summary>Join a school</summary>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><input id="sch-code" maxlength="12" placeholder="School code" aria-label="School code" value="${esc(schoolCodeFromLink())}" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn sm" onclick="joinSchool()">Join</button></div>
+    <p class="small muted" style="margin:8px 0 0">If a school invited you, enter its code. The school then approves you, and your classes appear under its name.</p></details>`;
+}
+async function joinSchool(){
+  const code=($("#sch-code")?.value||"").trim();
+  if(!code) return toast("Enter the school code");
+  const r = await sb.rpc("join_school",{p_code:code});
+  if(r.error) return toast(r.error.message);
+  try{ sessionStorage.removeItem("ss:school") }catch(e){}
+  await loadMe(); toast("You joined "+(r.data||"the school")); render();
+}
+async function leaveSchool(){
+  if(!A.leaving){ A.leaving=true; render(); return }
+  A.leaving=false;
+  const r = await sb.rpc("leave_school");
+  if(r.error){ toast(r.error.message); render(); return }
+  await loadMe(); await loadPublic(); toast("You left the school"); render();
+}
+// Public pages inside the app.
+function schoolsList(){
+  return `<div class="wrap page"><h2>Schools</h2>
+    <p class="muted">Schools on SeastackSchool have had their documents reviewed before their page and teachers went public.</p>
+    ${A.schools.length?`<div class="grid2">${A.schools.map(s=>{ const n=TEACHERS.filter(t=>t.school===s.id).length; return `<a class="res" href="#/school/${s.id}" style="text-decoration:none;color:inherit"><b>${esc(s.name)}</b><span class="small muted">${esc([s.city,s.country].filter(Boolean).join(", "))}</span><span class="small">${n} ${n===1?"teacher":"teachers"}</span></a>` }).join("")}</div>`
+    :`<div class="empty"><h3>No schools are listed yet</h3><p class="muted">If you run a school, you can register it and list your teachers and classes.</p><a class="btn" href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a></div>`}
+  </div>`;
+}
+function schoolPage(id){
+  const s=A.schools.find(x=>x.id===id);
+  if(!s) return `<div class="wrap page"><h2>School not found</h2><p class="muted">This school is not listed, or its page is still loading.</p><a href="#/schools">See all schools</a></div>`;
+  const ts=TEACHERS.filter(t=>t.school===s.id), cs=allClasses().filter(c=>ts.some(t=>t.id===c.t));
+  return `<div class="wrap profile">
+    <div class="profile-head"><div class="avatar lg" style="background:#eee9fb" aria-hidden="true">${esc(initials(s.name||"S"))}</div>
+      <div><h2 style="margin:0">${esc(s.name)}</h2>
+        <div class="muted">${esc([s.city,s.country].filter(Boolean).join(", "))}${s.website?` · <a href="${esc(s.website)}" target="_blank" rel="noopener noreferrer">Website</a>`:""}</div>
+        <div class="small muted">Documents reviewed by SeastackSchool${s.reviewed_at?" on "+new Date(s.reviewed_at).toLocaleDateString():""}</div></div></div>
+    <div class="cols"><div>
+      ${s.about?`<div class="box"><h3>About the school</h3><p style="margin:0;white-space:pre-line">${esc(s.about)}</p></div>`:""}
+      <h3>Classes</h3>${cs.length?`<div class="list">${cs.map(card).join("")}</div>`:`<div class="empty">No classes listed yet.</div>`}
+    </div><div>
+      <div class="box"><h3>Teachers</h3>${ts.length?ts.map(t=>`<div class="review"><a href="#/teacher/${t.id}"><b>${esc(t.name)}</b></a><div class="small muted">${esc(t.langs.join(", "))}</div></div>`).join(""):`<p class="muted" style="margin:0">No teachers listed yet.</p>`}</div>
+    </div></div>
+  </div>`;
+}
+// Admin: review schools and their documents.
+function adminSchools(){
+  const rows=A.srows||[], n=s=>rows.filter(r=>r.status===s).length;
+  const list=A.sfilter==="all"?rows:rows.filter(r=>r.status===A.sfilter);
+  const chip=(k,l)=>`<button class="chip" aria-pressed="${A.sfilter===k}" onclick="A.sfilter='${k}';render()">${l}</button>`;
+  const pill=s=>`<span class="tag ${s==="approved"?"ok":s==="suspended"?"bad":"group"}">${s[0].toUpperCase()+s.slice(1)}</span>`;
+  const act=(id,s,l,ghost)=>`<button class="btn sm ${ghost?"ghost":""}" onclick="setSchoolStatus('${id}','${s}')">${l}</button>`;
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Open each school's documents before approving it. An approved school gets a public page and can approve its own teachers. Suspending a school hides its page and the teachers it approved; restoring it brings them back.</p>
+    <div class="chips" style="margin-bottom:14px">${chip("pending","Waiting for review ("+n("pending")+")")}${chip("approved","Approved ("+n("approved")+")")}${chip("suspended","Suspended ("+n("suspended")+")")}${chip("all","All ("+rows.length+")")}</div>
+    ${list.length?`<div class="scroll"><table class="admin" style="min-width:900px"><thead><tr><th>School</th><th>Details</th><th>Documents</th><th>Teachers</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+    ${list.map(r=>{ const docs=A.sdocs[r.id]; return `<tr>
+      <td><b>${esc(r.name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}
+        <div class="small muted">Contact: ${esc(r.contact_name||"(none)")}</div><div class="small muted">${esc([r.city,r.country].filter(Boolean).join(", ")||"(no location yet)")}</div>
+        ${r.website?`<div class="small"><a href="${esc(r.website)}" target="_blank" rel="noopener noreferrer">Website</a></div>`:""}</td>
+      <td class="small"><details style="padding:6px 10px"><summary class="small">Read</summary><p style="margin:6px 0"><b>About</b><br>${esc(r.about||"(empty)")}</p><p style="margin:6px 0"><b>Note to reviewer</b><br>${esc(r.reviewer_note||"(empty)")}</p></details></td>
+      <td class="small">${docs?(docs.length?docs.map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showSchoolDocs('${r.id}')">Show documents</button>`}</td>
+      <td>${r.teachers} <span class="small muted">(${r.teachers_public} public)</span></td>
+      <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
+      <td>${pill(r.status)}${r.reviewed_at?`<div class="small muted" style="margin-top:4px">Reviewed ${new Date(r.reviewed_at).toLocaleDateString()}</div>`:""}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
+      <td><input id="snote-${r.id}" aria-label="Note for ${esc(r.name)}" placeholder="Note (optional)" maxlength="1000">
+        <div class="acts">${r.status==="approved"?act(r.id,"suspended","Suspend",true):r.status==="suspended"?act(r.id,"approved","Restore"):act(r.id,"approved","Approve")+act(r.id,"suspended","Suspend",true)}</div></td>
+    </tr>` }).join("")}</tbody></table></div>`
+    :`<div class="empty">${rows.length?"No schools in this list.":"No school has registered yet."}</div>`}
+  </div>`;
+}
+async function showSchoolDocs(id){ A.sdocs[id] = await listDocs(id); render() }
+async function setSchoolStatus(id,status){
+  const note=$("#snote-"+id)?.value.trim()||null;
+  const r = await sb.rpc("admin_set_school_status",{p_school_id:id,p_status:status,p_note:note});
+  if(r.error) return toast(r.error.message);
+  const keep=A.sdocs; await loadAdmin(); A.sdocs=keep; await loadPublic();
+  toast(status==="approved"?"School approved":"School suspended"); render();
 }
 
 /* ---------- affiliates: referral link, tier ladder, referrals (modelled on Seastack Book's program) ---------- */
@@ -584,8 +803,8 @@ async function setAffiliateStatus(id,status){
 }
 
 /* ---------- visits: where people come from and when (no cookies, no IP addresses) ---------- */
-const ROUTES = ["classes","learning","studio","help","teacher","account","admin","partner"];
-const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts","/partner":"Affiliate dashboard"};
+const ROUTES = ["classes","learning","studio","help","teacher","account","admin","partner","schools","school","myschool"];
+const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts","/partner":"Affiliate dashboard","/schools":"Schools","/school":"A school's page","/myschool":"School dashboard"};
 let lastTracked = null, memSid = null;
 function trackVisit(r){
   if(!sb || !A.ready || A.admin) return;          // the admin's own visits are not counted
@@ -644,8 +863,8 @@ render = function(){
   let r=routeName();
   // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
   if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
-  if(r==="admin" || r==="account" || r==="partner"){
-    $("#app").innerHTML = r==="admin" ? adminPage() : r==="partner" ? partnerPage() : accountPage();
+  if(["admin","account","partner","myschool","school","schools"].includes(r)){
+    $("#app").innerHTML = r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
   trackVisit(r);
@@ -669,7 +888,7 @@ render = function(){
     const id=session?.user?.id||null;
     if(id!==(A.user?.id||null) || event==="PASSWORD_RECOVERY") setTimeout(async()=>{
       await refresh();
-      if(id && (["","account","studio","partner"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : "#/account";
+      if(id && (["","account","studio","partner","myschool"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
     },0);
   });
   refresh();
