@@ -394,7 +394,12 @@ async function cancelReal(id){
   A.cancelling=null;
   const r = await sb.rpc("cancel_booking",{p_booking_id:id});
   if(r.error){ toast(r.error.message); render(); return }
+  notifyBooking(id,"cancelled");
   await loadMe(); await loadPublic(); toast("Booking cancelled"); render();
+}
+// Emails the teacher and the learner. The booking itself never depends on this succeeding.
+function notifyBooking(id,event){
+  try{ sb.functions.invoke("booking-notify",{body:{booking_id:id,event,tz:TZ}}).catch(()=>{}) }catch(e){}
 }
 
 /* ---------- booking: real classes can't be booked yet ---------- */
@@ -441,6 +446,7 @@ async function bookReal(){
   btn.disabled=true; btn.textContent="Please wait…";
   const r = await sb.rpc("book_class",{p_class_id:c.id,p_starts_at:new Date(start).toISOString(),p_child_id:parent?RB.child:null});
   if(r.error){ RB.err=r.error.message; await loadPublic(); render(); showRealBooking(); return }
+  notifyBooking(r.data,"booked");
   const who = parent ? (A.children.find(k=>k.id===RB.child)?.first_name||"your child") : (A.learner.full_name||"you");
   await loadMe(); await loadPublic();
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
