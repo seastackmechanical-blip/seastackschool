@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const out = path.join(root, "_site");
+const out = path.join(root, process.env.OUT_DIR || "_site");
 const SITE = (process.env.SITE_URL || "https://seastackmechanical-blip.github.io/seastackschool/").replace(/\/?$/, "/");
 const BASE = new URL(SITE).pathname;
 const SB_URL = "https://xzmamfglxmjjxjsetuaa.supabase.co";
@@ -146,6 +146,11 @@ const tSlug = (t) => slugify(t.full_name, t.id), cSlug = (c) => slugify(c.title,
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 for (const f of ["index.html", "accounts.js", ".nojekyll"]) fs.copyFileSync(path.join(root, f), path.join(out, f));
+// index.html names the public address in its search-engine tags; point them at the address being built for.
+const FIRST_ADDRESS = "https://seastackmechanical-blip.github.io/seastackschool/";
+if (SITE !== FIRST_ADDRESS) fs.writeFileSync(path.join(out, "index.html"), app.split(FIRST_ADDRESS).join(SITE));
+// robots.txt only counts at the top of a domain, so it is written only when the site lives there.
+if (BASE === "/") fs.writeFileSync(path.join(out, "robots.txt"), `User-agent: *\nAllow: /\n\nSitemap: ${SITE}sitemap.xml\n`);
 
 const urls = [SITE];
 const classCard = (c) => { const t = tById.get(c.teacher_id); return `<a class="listing linkcard" href="${BASE}classes/${cSlug(c)}/" style="grid-template-columns:1fr auto">

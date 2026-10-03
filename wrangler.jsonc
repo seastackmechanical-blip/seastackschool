@@ -1,0 +1,10 @@
+{
+  // Cloudflare Worker (static files only) for SeastackSchool. Separate from Seastack Book's Worker.
+  // The GitHub Actions workflow builds the site into ./_site_cf and runs `wrangler deploy`.
+  "name": "seastackschool",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./_site_cf",
+    "not_found_handling": "none"
+  }
+}
