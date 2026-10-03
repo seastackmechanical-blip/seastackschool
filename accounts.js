@@ -28,6 +28,9 @@ function toClass(x){
 }
 const DAY3 = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const routeName = () => location.hash.replace(/^#\/?/,"").split("/")[0];
+// Address of each teacher's and class's own page. Must stay identical to slugify() in scripts/build-pages.mjs.
+const SITE_BASE = location.origin + location.pathname.replace(/[^/]*$/,"");
+const slugify = (s,id) => (String(s||"").normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60) || "page") + "-" + String(id).slice(0,8);
 
 /* ---------- data ---------- */
 async function loadPublic(){
@@ -169,7 +172,8 @@ studio = function(){
 };
 function statusBanner(){
   const s=A.teacher.status;
-  return s==="approved" ? `<div class="ok" style="margin:12px 0">Your account is approved. Your profile and classes are public. <a href="#/teacher/${A.teacher.id}">See your public profile</a></div>`
+  return s==="approved" ? `<div class="ok" style="margin:12px 0">Your account is approved. Your profile and classes are public. <a href="#/teacher/${A.teacher.id}">See your public profile</a>
+      <div class="small" style="margin-top:6px;overflow-wrap:anywhere">Your own page to share: <a href="${SITE_BASE}teachers/${slugify(A.teacher.full_name,A.teacher.id)}/">${esc(SITE_BASE)}teachers/${slugify(A.teacher.full_name,A.teacher.id)}/</a> (new and changed pages appear within about an hour)</div></div>`
     : s==="suspended" ? `<div class="notice bad">Your account is suspended, so your profile and classes are hidden. Contact support from the Help page.</div>`
     : `<div class="notice">Your account is waiting for approval. Fill in your profile and add your classes now; students will see them once you're approved.</div>`;
 }
@@ -198,7 +202,8 @@ function myClassList(){
   return `<div style="margin-bottom:16px">${A.classes.map(x=>{ const c=toClass(x); return `<div class="lesson">
     <div><span class="tag ${c.type}">${typeLabel(c)}</span> <b>${esc(c.title)}</b>
       <div class="small muted">${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (your time) · ${c.mins} min</div>
-      <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc(A.links[x.id]||"")}" placeholder="Lesson link (Zoom, Meet…): https://" aria-label="Lesson link for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">Save link</button></div></div>
+      <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc(A.links[x.id]||"")}" placeholder="Lesson link (Zoom, Meet…): https://" aria-label="Lesson link for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">Save link</button></div>
+      ${A.teacher.status==="approved"?`<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">This class's own page to share: <a href="${SITE_BASE}classes/${slugify(x.title,x.id)}/">${esc(SITE_BASE)}classes/${slugify(x.title,x.id)}/</a></div>`:""}</div>
     <button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div>` }).join("")}</div>`;
 }
 addListing = async function(f){
@@ -535,12 +540,18 @@ function adminVisits(){
 /* ---------- router + start ---------- */
 const baseRender = render;
 render = function(){
-  const r=routeName();
+  let r=routeName();
+  // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
+  if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
   if(r==="admin" || r==="account"){
     $("#app").innerHTML = r==="admin" ? adminPage() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
   trackVisit(r);
+  if(A.pendingClass && A.ready){
+    const id=A.pendingClass; A.pendingClass=null;
+    if(cls(id)) openBooking(id); else toast("That class is no longer listed");
+  }
 };
 (function start(){
   S.myClasses=[]; if(S.role==="teacher"){ S.role="learner"; $("#role").value="learner" } save();
