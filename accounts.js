@@ -1,4 +1,4 @@
-/* Everyclass accounts: real teacher accounts, their classes, and admin management (Supabase).
+/* SeastackSchool accounts: real teacher accounts, their classes, and admin management (Supabase).
    Loaded after the page script in index.html; it replaces the prototype's teacher studio and adds #/admin. */
 const SB_URL = "https://xzmamfglxmjjxjsetuaa.supabase.co";
 const SB_KEY = "sb_publishable_J6pwCLXOBOp2hXlI183_dw_m06F6Jhh";
@@ -183,7 +183,7 @@ startTeaching = function(){ TAB = A.teacher && A.teacher.full_name.trim() ? "lis
 
 /* ---------- admin: manage teachers ---------- */
 function adminPage(){
-  if(!A.admin) return `<div class="wrap page"><h2>Manage teachers</h2><div class="notice">This page is for Everyclass admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/studio">Sign in</a>`}</div></div>`;
+  if(!A.admin) return `<div class="wrap page"><h2>Manage teachers</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/studio">Sign in</a>`}</div></div>`;
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;

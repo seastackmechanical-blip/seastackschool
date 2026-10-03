@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Everyclass — Teachers everywhere. Learning for anyone.</title>
+<title>SeastackSchool</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -193,7 +193,7 @@ footer{border-top:1px solid var(--line);padding:28px 0;color:var(--muted);font-s
 <body>
 <header class="top">
   <div class="wrap">
-    <a class="logo" href="#/"><span class="dot" aria-hidden="true"></span>Everyclass</a>
+    <a class="logo" href="#/"><span class="dot" aria-hidden="true"></span>SeastackSchool</a>
     <nav class="main" aria-label="Main">
       <a href="#/classes" data-r="classes">Find classes</a>
       <a href="#/learning" data-r="learning">My lessons</a>
@@ -307,7 +307,7 @@ const teacher = id => TEACHERS.find(t=>t.id===id);
 const cls = id => allClasses().find(c=>c.id===id);
 const DEMO = `<span class="tag demo" style="align-self:flex-start">Demo</span>`;
 const typeLabel = c => c.type==="private" ? "Private lesson · 1 student" : "Small group class · up to "+c.cap;
-function ensureMe(){ if(!TEACHERS.find(t=>t.id==="me")) TEACHERS.push({id:"me",name:"You",city:"your city",offset:-new Date().getTimezoneOffset()/60,color:"#DCE1EC",years:1,langs:["English"],subjects:[],rating:5,intro:"New teacher on Everyclass.",exp:"Add your experience in your profile."}) }
+function ensureMe(){ if(!TEACHERS.find(t=>t.id==="me")) TEACHERS.push({id:"me",name:"You",city:"your city",offset:-new Date().getTimezoneOffset()/60,color:"#DCE1EC",years:1,langs:["English"],subjects:[],rating:5,intro:"New teacher on SeastackSchool.",exp:"Add your experience in your profile."}) }
 if(S.myClasses.length) ensureMe();
 function startTeaching(){ TAB="list"; setRole("teacher") }
 function bookAs(r){ S.role=r; $("#role").value=r; save(); showBooking() }
@@ -343,7 +343,7 @@ function home(){
   return `
   <section class="hero wrap">
     <h1>Teachers everywhere. <span>Learning for anyone.</span></h1>
-    <p class="lead">Everyclass is where teachers anywhere in the world offer live online lessons, and students anywhere book them. Choose a private lesson or a small group class, with every time shown in your own time zone.</p>
+    <p class="lead">SeastackSchool is where teachers anywhere in the world offer live online lessons, and students anywhere book them. Choose a private lesson or a small group class, with every time shown in your own time zone.</p>
     <div class="cta">
       <a class="btn lg" href="#/classes">Find a class</a>
       <a class="btn lg ghost" href="#/studio" onclick="startTeaching()">Start teaching</a>
@@ -383,7 +383,7 @@ function home(){
     <div class="teachband">
       <div>
         <h2>Teach from wherever you are</h2>
-        <p>Create a teacher account, fill in your profile and list your classes. Everyclass converts your times for students in every time zone, and gives you a studio to plan lessons, track grades and share resources.</p>
+        <p>Create a teacher account, fill in your profile and list your classes. SeastackSchool converts your times for students in every time zone, and gives you a studio to plan lessons, track grades and share resources.</p>
         <a class="btn" href="#/studio" onclick="startTeaching()">Start teaching</a>
       </div>
       <ul>
@@ -441,7 +441,7 @@ function renderResults(){
   const el=$("#results"); if(!el) return;
   const list=allClasses().filter(matches);
   el.innerHTML = `<div class="results-head"><h2 style="margin:0">${list.length} ${list.length===1?"class":"classes"}</h2><span class="small muted">Times in ${esc(TZ)}</span></div>
-  <p class="notice" style="margin-top:0">Teachers and classes marked Demo are samples that show how Everyclass works. Booking and payment are not open yet.</p>
+  <p class="notice" style="margin-top:0">Teachers and classes marked Demo are samples that show how SeastackSchool works. Booking and payment are not open yet.</p>
   ${list.length? `<div class="list">${list.map(card).join("")}</div>` :
    `<div class="empty"><h3>No classes match these filters</h3><p class="muted">Try removing the age or time filter, or search a broader subject.</p></div>`}`;
 }
@@ -566,7 +566,7 @@ function pay(f){
     else { const k={id:uid(),name:f.cname.value.trim(),age:+f.cage.value}; S.children.push(k); who=k.name }
   } else who = f.lname.value.trim();
   const id=uid();
-  S.bookings.push({id,cid:c.id,key:BK.key,start,who,paid:c.price,link:`https://class.everyclass.app/join/${id}`,parent:S.role==="parent"});
+  S.bookings.push({id,cid:c.id,key:BK.key,start,who,paid:c.price,link:`https://class.seastackschool.com/join/${id}`,parent:S.role==="parent"});
   save(); BK.step="done"; BK.bid=id; toast("Booked and paid"); showBooking();
 }
 
@@ -701,7 +701,7 @@ function addListing(f){
 /* ---------- help ---------- */
 function help(){
   const faq=[
-    ["How do time zones work?","Every time on Everyclass is shown in your device's time zone. Teachers set hours in theirs, and we convert automatically."],
+    ["How do time zones work?","Every time on SeastackSchool is shown in your device's time zone. Teachers set hours in theirs, and we convert automatically."],
     ["Are the teachers and classes real?","Teachers, classes and reviews marked Demo are samples that show how the platform works. Listings without a Demo tag belong to real teachers whose accounts have been approved. Booking and payment are not open yet."],
     ["What's the difference between a private lesson and a small group class?","A private lesson is one student, one-to-one with the teacher. A small group class has a maximum size the teacher sets, shown on each listing with the places left."],
     ["Who can book?","Students aged 13 and over book for themselves. Parents book for their children from a parent account and choose which child each lesson is for."],
@@ -714,7 +714,7 @@ function help(){
     <form class="box" onsubmit="event.preventDefault();this.reset();toast('Message sent. We reply within 24 hours.')">
       <h3>Contact support</h3>
       <label class="field">Email<input type="email" required autocomplete="email"></label>
-      <label class="field" style="margin-top:8px">Topic<select><option>Booking or payment</option><option>Joining a lesson</option><option>Parent account</option><option>Teaching on Everyclass</option><option>Something else</option></select></label>
+      <label class="field" style="margin-top:8px">Topic<select><option>Booking or payment</option><option>Joining a lesson</option><option>Parent account</option><option>Teaching on SeastackSchool</option><option>Something else</option></select></label>
       <label class="field" style="margin-top:8px">Message<textarea rows="4" required></textarea></label>
       <button class="btn" style="margin-top:12px">Send message</button>
     </form></div></div>`;

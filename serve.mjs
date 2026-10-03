@@ -1,4 +1,4 @@
-// Local preview server for Everyclass: node serve.mjs, then open http://localhost:3000
+// Local preview server for SeastackSchool: node serve.mjs, then open http://localhost:3000
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,4 +11,4 @@ http.createServer((req, res) => {
   if (!file.startsWith(root) || !types[path.extname(file)] || !fs.existsSync(file)) { res.writeHead(404); res.end("Not found"); return; }
   res.writeHead(200, { "content-type": types[path.extname(file)], "cache-control": "no-store" });
   res.end(fs.readFileSync(file));
-}).listen(3000, "127.0.0.1", () => console.log("Everyclass on http://localhost:3000"));
+}).listen(3000, "127.0.0.1", () => console.log("SeastackSchool on http://localhost:3000"));
