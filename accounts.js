@@ -63,7 +63,7 @@ function authPage(){
     <h2>${up?"Create your teacher account":fg?"Reset your password":"Teacher sign in"}</h2>
     <p class="muted">${up?"Every account is reviewed before the teacher's profile and classes go public.":fg?"Enter your email and we'll send you a link to set a new password.":"Sign in to edit your profile and manage your classes."}</p>
     ${A.msg?`<div class="ok" style="margin-bottom:12px">${esc(A.msg)}</div>`:""}
-    <form id="authf" onsubmit="event.preventDefault();authSubmit(this)" style="display:flex;flex-direction:column;gap:10px">
+    <form id="authf" novalidate onsubmit="event.preventDefault();authSubmit(this)" style="display:flex;flex-direction:column;gap:10px">
       ${up?`<label class="field">Full name<input name="full_name" id="au-name" required maxlength="120" autocomplete="name"></label>`:""}
       <label class="field">Email<input name="email" id="au-email" type="email" required autocomplete="email"></label>
       ${fg?"":`<label class="field">Password${up?" (at least 8 characters)":""}<input name="password" id="au-pass" type="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>`}
@@ -76,23 +76,32 @@ function authPage(){
   </div></div>`;
 }
 async function authSubmit(f){
-  const btn=$("#authbtn"), email=f.email.value.trim(), back=location.origin+location.pathname;
-  btn.disabled=true; A.err=""; A.msg="";
+  const btn=$("#authbtn"), errEl=$("#autherr"), label=btn.textContent, email=f.email.value.trim(), back=location.origin+location.pathname;
+  // Every outcome shows a message in the form, and a failed attempt keeps what was typed.
+  const fail = m => { errEl.textContent=m; btn.disabled=false; btn.textContent=label };
+  if(A.mode==="signup" && !f.full_name.value.trim()) return fail("Enter your full name.");
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("Enter a valid email address, like name@example.com.");
+  if(A.mode==="signup" && f.password.value.length<8) return fail("Choose a password with at least 8 characters.");
+  if(A.mode==="signin" && !f.password.value) return fail("Enter your password.");
+  btn.disabled=true; btn.textContent="Please wait…"; errEl.textContent=""; A.err=""; A.msg="";
   let error=null;
-  if(A.mode==="signup"){
-    const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim()},emailRedirectTo:back}});
-    error=r.error;
-    if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
-  } else if(A.mode==="forgot"){
-    const r = await sb.auth.resetPasswordForEmail(email,{redirectTo:back});
-    error=r.error;
-    if(!error){ A.mode="signin"; A.msg=`If ${email} has an account, a reset link is on its way.` }
-  } else {
-    const r = await sb.auth.signInWithPassword({email,password:f.password.value});
-    error=r.error;
-  }
-  if(error) A.err = /not confirmed/i.test(error.message) ? "Confirm your email first: open the link we sent you, then sign in." :
-                    /invalid login/i.test(error.message) ? "That email and password don't match an account." : error.message;
+  try{
+    if(A.mode==="signup"){
+      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim()},emailRedirectTo:back}});
+      error=r.error;
+      if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
+    } else if(A.mode==="forgot"){
+      const r = await sb.auth.resetPasswordForEmail(email,{redirectTo:back});
+      error=r.error;
+      if(!error){ A.mode="signin"; A.msg=`If ${email} has an account, a reset link is on its way.` }
+    } else {
+      const r = await sb.auth.signInWithPassword({email,password:f.password.value});
+      error=r.error;
+    }
+  }catch(e){ error={message:"We couldn't reach the server. Check your connection and try again."} }
+  if(error) return fail(/not confirmed/i.test(error.message) ? "Confirm your email first: open the link we sent you, then sign in." :
+                        /invalid login/i.test(error.message) ? "That email and password don't match an account." :
+                        /rate limit/i.test(error.message) ? "Too many emails were sent in the last hour. Wait a while and try again." : error.message);
   if(!A.user) render();
 }
 function newPasswordPage(){
