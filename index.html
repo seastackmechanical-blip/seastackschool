@@ -226,7 +226,7 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
 </head>
 <body>
 <a class="sr" href="#app">Skip to content</a>
-<div class="demo-ribbon">CLASSES MARKED DEMO ARE SAMPLES / BOOKING AND PAYMENT ARE NOT OPEN YET</div>
+<div class="demo-ribbon">CLASSES MARKED DEMO ARE SAMPLES / ONLINE PAYMENT IS NOT OPEN YET</div>
 <header class="top">
   <div class="wrap">
     <a class="logo" href="#/"><span class="dot" aria-hidden="true"></span>SeastackSchool</a>
@@ -247,7 +247,7 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
   </div>
 </header>
 <main id="app"></main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Booking and payment are not open yet; nothing is charged. Times show in your time zone: <b id="tzname"></b>.</div></footer>
+<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Times show in your time zone: <b id="tzname"></b>.</div></footer>
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -353,15 +353,15 @@ function bookAs(r){ S.role=r; $("#role").value=r; save(); showBooking() }
 function sessions(c){
   const t = teacher(c.t), out=[], now=Date.now();
   const base = new Date(); base.setUTCHours(0,0,0,0);
-  for(let i=0;i<14;i++){
-    const d = new Date(base.getTime()+i*864e5);
-    const teacherLocal = new Date(d.getTime()+ (t.offset)*36e5);
-    if(!c.days.includes(teacherLocal.getUTCDay())) continue;
-    const startUTC = Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()) + (c.hour - t.offset)*36e5;
-    if(startUTC < now + 30*6e4) continue;
+  for(let i=-1;i<16;i++){
+    const d = new Date(base.getTime()+i*864e5);   // one calendar date in the teacher's own time zone
+    if(!c.days.includes(d.getUTCDay())) continue;
+    const off = t.tz ? tzOffsetAt(t.tz, d.getTime()+c.hour*36e5) : t.offset;
+    const startUTC = Math.round(d.getTime() + (c.hour - off)*36e5);
+    if(startUTC < now + 30*6e4 || startUTC > now + 14*864e5) continue;
     const key = c.id+"@"+startUTC;
-    const seeded = c.real ? 0 : c.type==="group" ? (hash(key)%(c.cap)) : (hash(key)%4===0?1:0);
-    const mine = S.bookings.filter(b=>b.key===key).length;
+    const seeded = c.real ? (BOOKED[key]||0) : c.type==="group" ? (hash(key)%(c.cap)) : (hash(key)%4===0?1:0);
+    const mine = c.real ? 0 : S.bookings.filter(b=>b.key===key).length;
     out.push({key,start:new Date(startUTC),left:Math.max(0,c.cap-seeded-mine)});
   }
   return out;
@@ -438,7 +438,7 @@ function renderResults(){
   const el=$("#results"); if(!el) return;
   const list=allClasses().filter(matches);
   el.innerHTML = `<div class="results-head"><h2 style="margin:0">${list.length} ${list.length===1?"class":"classes"}</h2><span class="small muted">Times in ${esc(TZ)}</span></div>
-  <p class="notice" style="margin-top:0">Teachers and classes marked Demo are samples that show how SeastackSchool works. Booking and payment are not open yet.</p>
+  <p class="notice" style="margin-top:0">Teachers and classes marked Demo are samples that show how SeastackSchool works. Classes without the tag can be booked with a free student or parent account. Online payment is not open yet.</p>
   ${list.length? `<div class="list">${list.map(card).join("")}</div>` :
    `<div class="empty"><h3>No classes match these filters</h3><p class="muted">Try removing the age or time filter, or search a broader subject.</p></div>`}`;
 }
@@ -683,6 +683,7 @@ function listings(){
     <label class="field">Start time (your time)<input name="time" id="nc-time" type="time" value="17:00" required></label>
     <label class="field">Lesson length (minutes)<input name="mins" id="nc-mins" type="number" min="15" step="5" value="45"></label>
     <p class="small muted" style="grid-column:1/-1;margin:0">You set times in your own time zone (${esc(TZ)}). Students see them converted to theirs.</p>
+    <label class="field" style="grid-column:1/-1">Lesson link, such as Zoom or Google Meet (optional; only people who booked can see it)<input name="link" id="nc-link" placeholder="https://"></label>
     <button class="btn" style="grid-column:1/-1;justify-self:start">Publish class</button>
   </form>`;
 }
@@ -699,11 +700,11 @@ function addListing(f){
 function help(){
   const faq=[
     ["How do time zones work?","Every time on SeastackSchool is shown in your device's time zone. Teachers set hours in theirs, and we convert automatically."],
-    ["Are the teachers and classes real?","Teachers, classes and reviews marked Demo are samples that show how the platform works. Listings without a Demo tag belong to real teachers whose accounts have been approved. Booking and payment are not open yet."],
+    ["Are the teachers and classes real?","Teachers, classes and reviews marked Demo are samples that show how the platform works. Listings without a Demo tag belong to real teachers whose accounts have been approved, and can be booked with a free student or parent account. Online payment is not open yet, so nothing is charged."],
     ["What's the difference between a private lesson and a small group class?","A private lesson is one student, one-to-one with the teacher. A small group class has a maximum size the teacher sets, shown on each listing with the places left."],
     ["Who can book?","Students aged 13 and over book for themselves. Parents book for their children from a parent account and choose which child each lesson is for."],
     ["Can my child have their own account?","Learners under 13 are managed from a parent account. Parents book, pay and see every lesson link."],
-    ["What if I need to cancel?","Cancel from My lessons. Cancellations made at least 24 hours before the lesson are refunded in full."],
+    ["What if I need to cancel?","Cancel from My lessons at any time before the lesson starts. Nothing is charged yet, so there is nothing to refund."],
     ["How do teacher accounts work?","Teachers create an account with their email, confirm it, and fill in a profile. Each account is reviewed before the teacher's profile and classes become public."]
   ];
   return `<div class="wrap page"><h2>Help and support</h2>
@@ -732,7 +733,7 @@ $("#tzname").textContent=TZ;
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=3"></script>
+<script src="accounts.js?v=4"></script>
 
 </body>
 </html>
