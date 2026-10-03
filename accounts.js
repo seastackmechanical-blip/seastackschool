@@ -6,7 +6,8 @@ const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null
 const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"signin", msg:"", err:"", recovery:false, filter:"pending", removing:null,
   learner:null, children:[], lrows:null, kind:"student", adminTab:"teachers", removingChild:null,
   bookings:[], links:{}, cancelling:null, brows:null, bfilter:"upcoming",
-  ready:false, visits:null, vdays:30, vloading:false};
+  ready:false, visits:null, vdays:30, vloading:false,
+  aff:null, adash:null, arows:null, afilter:"pending"};
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -30,6 +31,21 @@ const DAY3 = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const routeName = () => location.hash.replace(/^#\/?/,"").split("/")[0];
 // Address of each teacher's and class's own page. Must stay identical to slugify() in scripts/build-pages.mjs.
 const SITE_BASE = location.origin + location.pathname.replace(/[^/]*$/,"");
+// Affiliate links carry ?ref=CODE. The first link someone opens is the one that counts, for 90 days.
+const REF_DAYS = 90;
+function storedRef(){
+  try{ const r = JSON.parse(localStorage.getItem("ss:ref") || "null"); return r && r.code && Date.now() - r.at < REF_DAYS*864e5 ? r.code : null }catch(e){ return null }
+}
+(function captureRef(){
+  const code = (new URLSearchParams(location.search).get("ref") || "").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,16);
+  if(code.length < 4 || !sb) return;
+  try{
+    if(!storedRef()) localStorage.setItem("ss:ref", JSON.stringify({code, at:Date.now()}));
+    if(sessionStorage.getItem("ss:refclick")) return;      // one click per visit, not one per page load
+    sessionStorage.setItem("ss:refclick", "1");
+  }catch(e){}
+  sb.rpc("log_referral_click", {p_code:code, p_path:"/"+routeName().slice(0,40)}).then(()=>{}, ()=>{});
+})();
 const slugify = (s,id) => (String(s||"").normalize("NFKD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60) || "page") + "-" + String(id).slice(0,8);
 
 /* ---------- data ---------- */
@@ -47,19 +63,22 @@ async function loadPublic(){
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
-  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.brows=null;
+  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
   if(!A.user) return;
-  const [t,adm,c,l,k,b,ln] = await Promise.all([
+  const [t,adm,c,l,k,b,ln,af] = await Promise.all([
     sb.from("teachers").select("*").eq("id",A.user.id).maybeSingle(),
     sb.rpc("is_admin"),
     sb.from("classes").select("*").eq("teacher_id",A.user.id).order("created_at"),
     sb.from("learners").select("*").eq("id",A.user.id).maybeSingle(),
     sb.from("children").select("*").eq("parent_id",A.user.id).order("created_at"),
     sb.from("bookings").select("*").order("starts_at"),
-    sb.from("class_links").select("*")]);
+    sb.from("class_links").select("*"),
+    sb.from("affiliates").select("*").eq("id",A.user.id).maybeSingle()]);
   A.teacher = t.data || null; A.admin = adm.data === true; A.classes = c.data || [];
   A.learner = l.data || null; A.children = k.data || [];
   A.bookings = b.data || []; (ln.data||[]).forEach(x=>{ A.links[x.class_id]=x.url });
+  A.aff = af.data || null;
+  if(A.aff){ const d = await sb.rpc("my_affiliate_dashboard"); A.adash = d.error ? null : d.data }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -70,8 +89,8 @@ function syncLearner(){
   if(A.learner.role==="parent") S.children = A.children.map(k=>({id:k.id,name:k.first_name,age:k.age}));
 }
 async function loadAdmin(){
-  const [r,l,b] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings")]);
-  if(r.error || l.error || b.error) toast((r.error||l.error||b.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data }
+  const [r,l,b,f] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings"), sb.rpc("admin_list_affiliates")]);
+  if(r.error || l.error || b.error || f.error) toast((r.error||l.error||b.error||f.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data; A.arows = f.data }
 }
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=true; render() }
 
@@ -79,8 +98,8 @@ async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=
 function chrome(){
   let a = $("#acct");
   if(!a){ a=document.createElement("a"); a.id="acct"; a.className="btn sm ghost"; $(".top .wrap").appendChild(a) }
-  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : "#/account";
-  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : "My account";
+  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : "#/account";
+  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : A.aff ? "Affiliate dashboard" : "My account";
   a.onclick = A.user ? null : () => { A.mode="signin"; A.err=""; A.msg="" };
   let n = $("#navadmin");
   if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
@@ -96,8 +115,9 @@ function authPage(){
     <p class="muted">${up?"Choose the kind of account you need. Accounts are free.":fg?"Enter your email and we'll send you a link to set a new password.":"Students, parents and teachers all sign in here."}</p>
     ${A.msg?`<div class="ok" style="margin-bottom:12px">${esc(A.msg)}</div>`:""}
     <form id="authf" novalidate onsubmit="event.preventDefault();authSubmit(this)" style="display:flex;flex-direction:column;gap:10px">
-      ${up?`<fieldset class="field" style="border:0;padding:0;margin:0"><legend>I am a…</legend><div class="choices">${[["student","Student","I'm 13 or older and book lessons for myself."],["parent","Parent","I book lessons for my children."],["teacher","Teacher","I want to offer lessons. Teacher accounts are reviewed before going public."]].map(([k,l,d])=>`<label class="choice"><input type="radio" name="kind" value="${k}" id="au-kind-${k}" ${A.kind===k?"checked":""} onchange="A.kind=this.value"><span><b>${l}</b>${d}</span></label>`).join("")}</div></fieldset>`:""}
-      ${up?`<label class="field">Full name<input name="full_name" id="au-name" required maxlength="120" autocomplete="name"></label>`:""}
+      ${up?`<fieldset class="field" style="border:0;padding:0;margin:0"><legend>I am a…</legend><div class="choices">${[["student","Student","I'm 13 or older and book lessons for myself."],["parent","Parent","I book lessons for my children."],["teacher","Teacher","I want to offer lessons. Teacher accounts are reviewed before going public."],["affiliate","Affiliate","I want to refer teachers and families with my own link. Affiliate accounts are reviewed before they are activated."]].map(([k,l,d])=>`<label class="choice"><input type="radio" name="kind" value="${k}" id="au-kind-${k}" ${A.kind===k?"checked":""} onchange="A.kind=this.value;$('#au-pitchwrap').hidden=this.value!=='affiliate'"><span><b>${l}</b>${d}</span></label>`).join("")}</div></fieldset>`:""}
+      ${up?`<label class="field">Full name<input name="full_name" id="au-name" required maxlength="120" autocomplete="name"></label>
+      <label class="field" id="au-pitchwrap" ${A.kind==="affiliate"?"":"hidden"}>How will you tell people about SeastackSchool? (optional)<textarea name="pitch" id="au-pitch" rows="2" maxlength="600"></textarea></label>`:""}
       <label class="field">Email<input name="email" id="au-email" type="email" required autocomplete="email"></label>
       ${fg?"":`<label class="field">Password${up?" (at least 8 characters)":""}<input name="password" id="au-pass" type="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>`}
       <div class="err" id="autherr">${esc(A.err)}</div>
@@ -120,7 +140,7 @@ async function authSubmit(f){
   let error=null;
   try{
     if(A.mode==="signup"){
-      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value},emailRedirectTo:back}});
+      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null},emailRedirectTo:back}});
       error=r.error;
       if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
     } else if(A.mode==="forgot"){
@@ -258,6 +278,7 @@ function adminPage(){
   if(A.adminTab==="learners") return adminLearners();
   if(A.adminTab==="bookings") return adminBookings();
   if(A.adminTab==="visits") return adminVisits();
+  if(A.adminTab==="affiliates") return adminAffiliates();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -293,7 +314,7 @@ function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("visits","Visits")}</div>`;
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("visits","Visits")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -349,7 +370,7 @@ function accountPage(){
   if(!A.user) return authPage();
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.learner) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
-    <div class="notice">${A.teacher?`You're signed in with a teacher account. <a href="#/studio">Open the teacher studio</a>`:A.admin?`You're signed in with the admin account. <a href="#/admin">Manage accounts</a>`:"This account has no profile yet."}</div></div>`;
+    <div class="notice">${A.teacher?`You're signed in with a teacher account. <a href="#/studio">Open the teacher studio</a>`:A.aff?`You're signed in with an affiliate account. <a href="#/partner">Open the affiliate dashboard</a>`:A.admin?`You're signed in with the admin account. <a href="#/admin">Manage accounts</a>`:"This account has no profile yet."}</div></div>`;
   const L=A.learner, parent=L.role==="parent";
   return `<div class="wrap page">
     <div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
@@ -453,7 +474,7 @@ function showRealBooking(){
   const kids=parent?A.children.filter(k=>k.age>=c.ages[0] && k.age<=c.ages[1]):[];
   let block="";   // why this visitor can't book, if they can't
   if(!A.user) block=`To book this class, sign in or create a free student or parent account.<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/account" onclick="A.mode='signup';A.kind='student';$('#dlg').close()">Create an account</a><a class="btn sm ghost" href="#/account" onclick="A.mode='signin';$('#dlg').close()">Sign in</a></div>`;
-  else if(!A.learner) block=`Lessons are booked from a student or parent account. You're signed in with ${A.teacher?"a teacher":"the admin"} account.`;
+  else if(!A.learner) block=`Lessons are booked from a student or parent account. You're signed in with ${A.teacher?"a teacher":A.aff?"an affiliate":"the admin"} account.`;
   else if(A.learner.status!=="active") block="This account is suspended, so it can't book lessons.";
   else if(!parent && c.ages[1]<13) block="This class is for children under 13, so it's booked from a parent account.";
   else if(parent && !A.children.length) block=`Add your child to your account first. <a href="#/account" onclick="$('#dlg').close()">Open my account</a>`;
@@ -482,9 +503,89 @@ async function bookReal(){
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
 }
 
+/* ---------- affiliates: referral link, tier ladder, referrals (modelled on Seastack Book's program) ---------- */
+function partnerPage(){
+  if(!sb) return `<div class="wrap page"><h2>Affiliate dashboard</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
+  if(A.recovery) return newPasswordPage();
+  if(!A.user) return authPage();
+  const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
+  if(!A.aff) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">Affiliate dashboard</h2>${who}</div>
+    <div class="notice">This page is for affiliate accounts. To become an affiliate, create a separate affiliate account with a different email.</div></div>`;
+  const a=A.aff, d=A.adash || {active:0,signups:0,clicks_30d:0,clicks_all:0,referrals:[],level2:0,level3:0,settings:{tiers:[],l2_rate:5,l3_rate:3,window_days:90}};
+  const tiers=d.settings.tiers, cur=tiers.slice().reverse().find(t=>d.active>=t.min) || tiers[0], next=tiers.find(t=>t.min>d.active);
+  const link=SITE_BASE+"?ref="+a.code, kinds={teacher:"Teacher",student:"Student",parent:"Parent"};
+  return `<div class="wrap page">
+    <div class="results-head"><h2 style="margin:0">Affiliate dashboard</h2>${who}</div>
+    ${a.status==="pending"?`<div class="notice">Your affiliate account is waiting for approval. Your link starts counting once you're approved.</div>`
+      :a.status==="suspended"?`<div class="notice bad">Your affiliate account is suspended, so your link is not counting. Contact support from the Help page.</div>`:""}
+    <div class="cols"><div>
+      <div class="box"><h3>Your referral link</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="reflink" readonly value="${esc(link)}" aria-label="Your referral link" style="flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn sm" onclick="copyRef()">Copy link</button></div>
+        <p class="small muted" style="margin:10px 0 0">Your code is <b>${esc(a.code)}</b>. Anyone who opens this link and signs up as a teacher, student or parent within ${d.settings.window_days} days counts as your referral. The first link a person opens is the one that counts. You can add <b>?ref=${esc(a.code)}</b> to the address of any page on the site.</p>
+        <p class="small muted" style="margin:8px 0 0">Someone who becomes an affiliate through your link joins your second level.</p></div>
+      <div class="box"><h3>Your referrals</h3>
+        ${d.referrals.length?`<div class="scroll"><table style="min-width:360px"><thead><tr><th>Type</th><th>Signed up</th><th>Status</th></tr></thead><tbody>
+        ${d.referrals.map(r=>`<tr><td>${kinds[r.kind]||"Account"}</td><td>${r.joined_at?new Date(r.joined_at).toLocaleDateString():""}</td><td><span class="tag ${r.active?"ok":"group"}">${r.active?"Active":"Signed up"}</span></td></tr>`).join("")}</tbody></table></div>`
+        :`<p class="muted" style="margin:0">No one has signed up through your link yet.</p>`}
+        <p class="small muted" style="margin:10px 0 0">A referral is active once a teacher is approved and has listed a class, or a student or parent has booked a lesson. Names are not shown, to protect families' privacy.</p></div>
+    </div><div>
+      <div class="box"><h3>Your numbers</h3>
+        <table style="min-width:0"><tbody>
+          <tr><td>Link opens, last 30 days</td><td style="text-align:right"><b>${d.clicks_30d}</b></td></tr>
+          <tr><td>Link opens, all time</td><td style="text-align:right"><b>${d.clicks_all}</b></td></tr>
+          <tr><td>Sign-ups</td><td style="text-align:right"><b>${d.signups}</b></td></tr>
+          <tr><td>Active referrals</td><td style="text-align:right"><b>${d.active}</b></td></tr>
+          <tr><td>Affiliates on your second level</td><td style="text-align:right"><b>${d.level2}</b></td></tr>
+          <tr><td>Affiliates on your third level</td><td style="text-align:right"><b>${d.level3}</b></td></tr>
+        </tbody></table></div>
+      <div class="box"><h3>Your tier: ${esc(cur?cur.name:"Starter")}</h3>
+        <table style="min-width:0"><thead><tr><th>Tier</th><th>Active referrals</th><th>Commission</th></tr></thead><tbody>
+        ${tiers.map(t=>`<tr><td>${t===cur?`<b>${esc(t.name)}</b> <span class="tag ok">You</span>`:esc(t.name)}</td><td>${t.min}${t===tiers[tiers.length-1]?"+":""}</td><td>${t.rate}%</td></tr>`).join("")}</tbody></table>
+        <p class="small" style="margin:10px 0 0">${next?`${next.min-d.active} more active ${next.min-d.active===1?"referral":"referrals"} to reach ${esc(next.name)} (${next.rate}%).`:"You are on the top tier."}</p>
+        <p class="small muted" style="margin:8px 0 0">Second level ${d.settings.l2_rate}%, third level ${d.settings.l3_rate}%.</p>
+        <p class="small muted" style="margin:8px 0 0">Commission is a share of what SeastackSchool collects from the accounts you refer. Online payment is not open yet, so nothing is earned or paid yet; these are the planned rates. Earned so far: <b>$0</b>.</p></div>
+    </div></div>
+  </div>`;
+}
+function copyRef(){
+  const el=$("#reflink");
+  const fallback=()=>{ el.focus(); el.select(); toast("Link selected. Copy it with Ctrl+C or the Copy menu.") };
+  if(navigator.clipboard) navigator.clipboard.writeText(el.value).then(()=>toast("Link copied"), fallback); else fallback();
+}
+function adminAffiliates(){
+  const rows=A.arows||[], n=s=>rows.filter(r=>r.status===s).length;
+  const list=A.afilter==="all"?rows:rows.filter(r=>r.status===A.afilter);
+  const chip=(k,l)=>`<button class="chip" aria-pressed="${A.afilter===k}" onclick="A.afilter='${k}';render()">${l}</button>`;
+  const pill=s=>`<span class="tag ${s==="approved"?"ok":s==="suspended"?"bad":"group"}">${s[0].toUpperCase()+s.slice(1)}</span>`;
+  const act=(id,s,l,ghost)=>`<button class="btn sm ${ghost?"ghost":""}" onclick="setAffiliateStatus('${id}','${s}')">${l}</button>`;
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Affiliates share a personal link and are credited with the teachers, students and parents who sign up through it. A link only counts once you approve the affiliate. No commission is calculated yet, because online payment is not open.</p>
+    <div class="chips" style="margin-bottom:14px">${chip("pending","Waiting for approval ("+n("pending")+")")}${chip("approved","Approved ("+n("approved")+")")}${chip("suspended","Suspended ("+n("suspended")+")")}${chip("all","All ("+rows.length+")")}</div>
+    ${list.length?`<div class="scroll"><table class="admin" style="min-width:860px"><thead><tr><th>Affiliate</th><th>How they will promote</th><th>Link opens</th><th>Sign-ups</th><th>Active</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+    ${list.map(r=>`<tr>
+      <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}
+        <div class="small muted">Code ${esc(r.code)}${r.recruited_by_code?` · brought in by ${esc(r.recruited_by_code)}`:""}</div></td>
+      <td class="small">${esc(r.pitch||"(nothing written)")}</td>
+      <td>${r.clicks}</td><td>${r.signups}</td><td>${r.active}</td>
+      <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
+      <td>${pill(r.status)}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
+      <td><input id="anote-${r.id}" aria-label="Note for ${esc(r.full_name)}" placeholder="Note (optional)" maxlength="1000">
+        <div class="acts">${r.status==="approved"?act(r.id,"suspended","Suspend",true):r.status==="suspended"?act(r.id,"approved","Restore"):act(r.id,"approved","Approve")+act(r.id,"suspended","Suspend",true)}</div></td>
+    </tr>`).join("")}</tbody></table></div>`
+    :`<div class="empty">${rows.length?"No affiliates in this list.":"No one has applied to be an affiliate yet."}</div>`}
+  </div>`;
+}
+async function setAffiliateStatus(id,status){
+  const note=$("#anote-"+id)?.value.trim()||null;
+  const r = await sb.rpc("admin_set_affiliate_status",{p_affiliate_id:id,p_status:status,p_note:note});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); toast(status==="approved"?"Affiliate approved":"Affiliate suspended"); render();
+}
+
 /* ---------- visits: where people come from and when (no cookies, no IP addresses) ---------- */
-const ROUTES = ["classes","learning","studio","help","teacher","account","admin"];
-const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts"};
+const ROUTES = ["classes","learning","studio","help","teacher","account","admin","partner"];
+const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts","/partner":"Affiliate dashboard"};
 let lastTracked = null, memSid = null;
 function trackVisit(r){
   if(!sb || !A.ready || A.admin) return;          // the admin's own visits are not counted
@@ -543,8 +644,8 @@ render = function(){
   let r=routeName();
   // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
   if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
-  if(r==="admin" || r==="account"){
-    $("#app").innerHTML = r==="admin" ? adminPage() : accountPage();
+  if(r==="admin" || r==="account" || r==="partner"){
+    $("#app").innerHTML = r==="admin" ? adminPage() : r==="partner" ? partnerPage() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
   trackVisit(r);
@@ -568,7 +669,7 @@ render = function(){
     const id=session?.user?.id||null;
     if(id!==(A.user?.id||null) || event==="PASSWORD_RECOVERY") setTimeout(async()=>{
       await refresh();
-      if(id && (["","account","studio"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.admin ? "#/admin" : "#/account";
+      if(id && (["","account","studio","partner"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : "#/account";
     },0);
   });
   refresh();

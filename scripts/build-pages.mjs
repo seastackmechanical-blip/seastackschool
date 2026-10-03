@@ -67,6 +67,15 @@ const track = (p) => `<script>
   fetch(${JSON.stringify(SB_URL)}+"/rest/v1/rpc/log_visit",{method:"POST",keepalive:true,headers:{apikey:${JSON.stringify(SB_KEY)},"Content-Type":"application/json"},
     body:JSON.stringify({p_session:sid.slice(0,40),p_landing:landing,p_path:${JSON.stringify(p.slice(0, 60))},p_referrer:landing?(ref||null):null,
       p_source:landing?q.get("utm_source"):null,p_medium:landing?q.get("utm_medium"):null,p_campaign:landing?q.get("utm_campaign"):null})}).catch(function(){});
+  // affiliate links (?ref=CODE): same rule as the app, first link wins for 90 days
+  var rc=(q.get("ref")||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,16);
+  if(rc.length>=4){
+    var st=null;try{st=JSON.parse(localStorage.getItem("ss:ref")||"null")}catch(e){}
+    if(!(st&&st.code&&Date.now()-st.at<90*864e5))localStorage.setItem("ss:ref",JSON.stringify({code:rc,at:Date.now()}));
+    if(!sessionStorage.getItem("ss:refclick")){sessionStorage.setItem("ss:refclick","1");
+      fetch(${JSON.stringify(SB_URL)}+"/rest/v1/rpc/log_referral_click",{method:"POST",keepalive:true,headers:{apikey:${JSON.stringify(SB_KEY)},"Content-Type":"application/json"},
+        body:JSON.stringify({p_code:rc,p_path:${JSON.stringify(p.slice(0, 60))}})}).catch(function(){})}
+  }
 }catch(e){}
 try{
   var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
