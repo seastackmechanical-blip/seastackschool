@@ -3,7 +3,8 @@
 const SB_URL = "https://xzmamfglxmjjxjsetuaa.supabase.co";
 const SB_KEY = "sb_publishable_J6pwCLXOBOp2hXlI183_dw_m06F6Jhh";
 const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
-const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"signin", msg:"", err:"", recovery:false, filter:"pending", removing:null};
+const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"signin", msg:"", err:"", recovery:false, filter:"pending", removing:null,
+  learner:null, children:[], lrows:null, kind:"student", adminTab:"teachers", removingChild:null};
 
 /* ---------- helpers ---------- */
 function ratingLabel(tid){ return reviewsFor(tid).length ? `<span class="stars">★</span> ${rating(tid).toFixed(1)}` : `<span class="muted">New</span>` }
@@ -32,26 +33,40 @@ async function loadPublic(){
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
-  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null;
+  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null;
   if(!A.user) return;
-  const [t,adm,c] = await Promise.all([
+  const [t,adm,c,l,k] = await Promise.all([
     sb.from("teachers").select("*").eq("id",A.user.id).maybeSingle(),
     sb.rpc("is_admin"),
-    sb.from("classes").select("*").eq("teacher_id",A.user.id).order("created_at")]);
+    sb.from("classes").select("*").eq("teacher_id",A.user.id).order("created_at"),
+    sb.from("learners").select("*").eq("id",A.user.id).maybeSingle(),
+    sb.from("children").select("*").eq("parent_id",A.user.id).order("created_at")]);
   A.teacher = t.data || null; A.admin = adm.data === true; A.classes = c.data || [];
+  A.learner = l.data || null; A.children = k.data || [];
+  syncLearner();
   if(A.admin) await loadAdmin();
 }
-async function loadAdmin(){ const r = await sb.rpc("admin_list_teachers"); if(r.error) toast(r.error.message); else A.rows = r.data }
+// A signed-in student or parent books as themselves; a parent's children come from their account.
+function syncLearner(){
+  if(!A.learner) return;
+  S.role = A.learner.role==="parent" ? "parent" : "learner"; $("#role").value = S.role;
+  if(A.learner.role==="parent") S.children = A.children.map(k=>({id:k.id,name:k.first_name,age:k.age}));
+}
+async function loadAdmin(){
+  const [r,l] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners")]);
+  if(r.error || l.error) toast((r.error||l.error).message); else { A.rows = r.data; A.lrows = l.data }
+}
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); render() }
 
 /* ---------- header ---------- */
 function chrome(){
   let a = $("#acct");
   if(!a){ a=document.createElement("a"); a.id="acct"; a.className="btn sm ghost"; $(".top .wrap").appendChild(a) }
-  a.href = A.admin && !A.teacher ? "#/admin" : "#/studio";
-  a.textContent = !A.user ? "Teacher sign in" : A.admin && !A.teacher ? "Admin" : "My teacher account";
+  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : "#/account";
+  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : "My account";
+  a.onclick = A.user ? null : () => { A.mode="signin"; A.err=""; A.msg="" };
   let n = $("#navadmin");
-  if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage teachers"; $("nav.main").appendChild(n) }
+  if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
   if(!A.admin && n) n.remove();
 }
 
@@ -60,10 +75,11 @@ function authPage(){
   const up=A.mode==="signup", fg=A.mode==="forgot";
   const sw = m => `A.mode='${m}';A.err='';A.msg='';render()`;
   return `<div class="wrap page"><div class="box" style="max-width:460px;margin:0 auto">
-    <h2>${up?"Create your teacher account":fg?"Reset your password":"Teacher sign in"}</h2>
-    <p class="muted">${up?"Every account is reviewed before the teacher's profile and classes go public.":fg?"Enter your email and we'll send you a link to set a new password.":"Sign in to edit your profile and manage your classes."}</p>
+    <h2>${up?"Create your account":fg?"Reset your password":"Sign in"}</h2>
+    <p class="muted">${up?"Choose the kind of account you need. Accounts are free.":fg?"Enter your email and we'll send you a link to set a new password.":"Students, parents and teachers all sign in here."}</p>
     ${A.msg?`<div class="ok" style="margin-bottom:12px">${esc(A.msg)}</div>`:""}
     <form id="authf" novalidate onsubmit="event.preventDefault();authSubmit(this)" style="display:flex;flex-direction:column;gap:10px">
+      ${up?`<fieldset class="field" style="border:0;padding:0;margin:0"><legend>I am a…</legend><div class="choices">${[["student","Student","I'm 13 or older and book lessons for myself."],["parent","Parent","I book lessons for my children."],["teacher","Teacher","I want to offer lessons. Teacher accounts are reviewed before going public."]].map(([k,l,d])=>`<label class="choice"><input type="radio" name="kind" value="${k}" id="au-kind-${k}" ${A.kind===k?"checked":""} onchange="A.kind=this.value"><span><b>${l}</b>${d}</span></label>`).join("")}</div></fieldset>`:""}
       ${up?`<label class="field">Full name<input name="full_name" id="au-name" required maxlength="120" autocomplete="name"></label>`:""}
       <label class="field">Email<input name="email" id="au-email" type="email" required autocomplete="email"></label>
       ${fg?"":`<label class="field">Password${up?" (at least 8 characters)":""}<input name="password" id="au-pass" type="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>`}
@@ -71,7 +87,7 @@ function authPage(){
       <button class="btn" id="authbtn" style="align-self:flex-start">${up?"Create account":fg?"Send reset link":"Sign in"}</button>
     </form>
     <p class="small" style="margin:14px 0 0;display:flex;gap:8px;flex-wrap:wrap">
-      ${up||fg?`<button class="btn ghost sm" onclick="${sw("signin")}">I already have an account</button>`:`<button class="btn ghost sm" onclick="${sw("signup")}">Create a teacher account</button><button class="btn ghost sm" onclick="${sw("forgot")}">Forgot password</button>`}
+      ${up||fg?`<button class="btn ghost sm" onclick="${sw("signin")}">I already have an account</button>`:`<button class="btn ghost sm" onclick="${sw("signup")}">Create an account</button><button class="btn ghost sm" onclick="${sw("forgot")}">Forgot password</button>`}
     </p>
   </div></div>`;
 }
@@ -87,7 +103,7 @@ async function authSubmit(f){
   let error=null;
   try{
     if(A.mode==="signup"){
-      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim()},emailRedirectTo:back}});
+      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value},emailRedirectTo:back}});
       error=r.error;
       if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
     } else if(A.mode==="forgot"){
@@ -126,7 +142,7 @@ studio = function(){
   if(!A.user) return authPage();
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.teacher) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
-    <div class="notice">${A.admin?`This is an admin account, so it has no teacher profile. <a href="#/admin">Manage teachers</a>`:"This account has no teacher profile."}</div></div>`;
+    <div class="notice">${A.admin?`This is an admin account, so it has no teacher profile. <a href="#/admin">Manage teachers</a>`:A.learner?`This is a ${A.learner.role} account, so it has no teacher studio. To teach, create a separate teacher account with a different email. <a href="#/account">Open my account</a>`:"This account has no teacher profile."}</div></div>`;
   const tabs=[["profile","My profile"],["list","My classes"],["plan","Weekly planner"],["grades","Students & grades"],["res","Resources"]];
   if(!tabs.some(t=>t[0]===TAB)) TAB="profile";
   const local = `<p class="small muted">This tool is saved in this browser only for now.</p>`;
@@ -188,19 +204,19 @@ async function removeClass(id){
   if(r.error) return toast(r.error.message);
   await loadMe(); await loadPublic(); toast("Class removed"); render();
 }
-startTeaching = function(){ TAB = A.teacher && A.teacher.full_name.trim() ? "list" : "profile" };
+startTeaching = function(){ A.kind="teacher"; if(!A.user){ A.mode="signup"; A.err=""; A.msg="" } TAB = A.teacher && A.teacher.full_name.trim() ? "list" : "profile" };
 
 /* ---------- admin: manage teachers ---------- */
 function adminPage(){
-  if(!A.admin) return `<div class="wrap page"><h2>Manage teachers</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/studio">Sign in</a>`}</div></div>`;
+  if(!A.admin) return `<div class="wrap page"><h2>Manage accounts</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/account">Sign in</a>`}</div></div>`;
+  if(A.adminTab==="learners") return adminLearners();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
   const pill=s=>`<span class="tag ${s==="approved"?"ok":s==="suspended"?"bad":"group"}">${s[0].toUpperCase()+s.slice(1)}</span>`;
   const act=(id,s,l,ghost)=>`<button class="btn sm ${ghost?"ghost":""}" onclick="setStatus('${id}','${s}')">${l}</button>`;
   return `<div class="wrap page">
-    <div class="results-head"><h2 style="margin:0">Manage teachers</h2>
-      <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
+    ${adminHead()}
     <p class="muted">Approve a teacher to make their profile and classes public. Suspend one to hide them again. Every change is recorded with your account and the time.</p>
     <div class="chips" style="margin-bottom:14px">${chip("pending","Waiting for approval ("+n("pending")+")")}${chip("approved","Approved ("+n("approved")+")")}${chip("suspended","Suspended ("+n("suspended")+")")}${chip("all","All ("+rows.length+")")}</div>
     ${list.length?`<div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Teacher</th><th>Profile</th><th>Classes</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
@@ -225,6 +241,106 @@ async function setStatus(id,status){
   toast(status==="approved"?"Teacher approved":"Teacher suspended"); render();
 }
 
+function adminHead(){
+  const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
+  return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
+      <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}</div>`;
+}
+function adminLearners(){
+  const rows=A.lrows||[];
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Student and parent accounts are active as soon as the email is confirmed. Suspend one to block it; restore it at any time. Every change is recorded with your account and the time.</p>
+    ${rows.length?`<div class="scroll"><table class="admin" style="min-width:720px"><thead><tr><th>Account</th><th>Type</th><th>Children</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}</td>
+      <td>${r.role==="parent"?"Parent":"Student"}</td>
+      <td>${r.role==="parent"?r.child_count:"–"}</td>
+      <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
+      <td><span class="tag ${r.status==="active"?"ok":"bad"}">${r.status==="active"?"Active":"Suspended"}</span>${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
+      <td><input id="lnote-${r.id}" aria-label="Note for ${esc(r.full_name)}" placeholder="Note (optional)" maxlength="1000">
+        <div class="acts">${r.status==="active"?`<button class="btn sm ghost" onclick="setLearnerStatus('${r.id}','suspended')">Suspend</button>`:`<button class="btn sm" onclick="setLearnerStatus('${r.id}','active')">Restore</button>`}</div></td>
+    </tr>`).join("")}</tbody></table></div>`
+    :`<div class="empty">No students or parents have signed up yet.</div>`}
+  </div>`;
+}
+async function setLearnerStatus(id,status){
+  const note=$("#lnote-"+id)?.value.trim()||null;
+  const r = await sb.rpc("admin_set_learner_status",{p_learner_id:id,p_status:status,p_note:note});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); toast(status==="active"?"Account restored":"Account suspended"); render();
+}
+
+/* ---------- student and parent accounts ---------- */
+function accountPage(){
+  if(!sb) return `<div class="wrap page"><h2>My account</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
+  if(A.recovery) return newPasswordPage();
+  if(!A.user) return authPage();
+  const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
+  if(!A.learner) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
+    <div class="notice">${A.teacher?`You're signed in with a teacher account. <a href="#/studio">Open the teacher studio</a>`:A.admin?`You're signed in with the admin account. <a href="#/admin">Manage accounts</a>`:"This account has no profile yet."}</div></div>`;
+  const L=A.learner, parent=L.role==="parent";
+  return `<div class="wrap page">
+    <div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
+    ${L.status==="suspended"?`<div class="notice bad">This account is suspended. Contact support from the Help page.</div>`:""}
+    <div class="cols"><div>
+      <form class="box" id="acctf" novalidate onsubmit="event.preventDefault();saveLearner(this)">
+        <h3>${parent?"Parent account":"Student account"}</h3>
+        <label class="field">Full name<input name="full_name" id="ac-name" maxlength="120" value="${esc(L.full_name)}"></label>
+        <p class="small muted" style="margin:10px 0">${parent?"You book lessons for your children from this account.":"You book lessons for yourself from this account."}</p>
+        <button class="btn sm">Save name</button>
+      </form>
+      ${parent?familyBox():""}
+    </div><div>
+      <div class="box"><h3>My lessons</h3><p class="muted" style="margin:0 0 12px">Booking and payment are not open yet. When they open, the lessons you book will appear here.</p><a class="btn sm" href="#/classes">Find a class</a></div>
+    </div></div>
+  </div>`;
+}
+function familyBox(){
+  return `<div class="box"><h3>My children</h3>
+    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for.</p>
+    ${A.children.length?A.children.map(k=>`<div class="lesson"><span><b>${esc(k.first_name)}</b>, age ${k.age}</span><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
+    <form class="row" id="childf" novalidate onsubmit="event.preventDefault();addChild(this)">
+      <label class="field">Child's first name<input name="n" id="ch-name" maxlength="60"></label>
+      <label class="field">Age<input name="a" id="ch-age" type="number" min="3" max="17"></label>
+      <button class="btn sm" style="align-self:end">Add child</button>
+    </form></div>`;
+}
+async function saveLearner(f){
+  const name=f.full_name.value.trim();
+  if(!name) return toast("Enter your full name");
+  const r = await sb.from("learners").update({full_name:name}).eq("id",A.user.id).select().maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "Your name could not be saved");
+  A.learner=r.data; toast("Name saved"); render();
+}
+async function addChild(f){
+  const name=f.n.value.trim(), age=+f.a.value;
+  if(!name) return toast("Enter your child's first name");
+  if(!(age>=3 && age<=17)) return toast("Enter an age between 3 and 17");
+  const r = await sb.from("children").insert({parent_id:A.user.id,first_name:name,age});
+  if(r.error) return toast(/up to 10/.test(r.error.message) ? "A parent account can list up to 10 children" : /row-level security/i.test(r.error.message) ? "Your account can't add children right now" : r.error.message);
+  await loadMe(); toast("Child added"); render();
+}
+async function dropChild(id){
+  if(A.removingChild!==id){ A.removingChild=id; render(); return }
+  A.removingChild=null;
+  const r = await sb.from("children").delete().eq("id",id);
+  if(r.error) return toast(r.error.message);
+  await loadMe(); toast("Child removed"); render();
+}
+// My lessons: a signed-in student or parent manages family in their account, not in this browser.
+const baseLearning = learning;
+learning = function(){
+  const html=baseLearning();
+  if(!A.learner) return html;
+  const i=html.indexOf('<div class="box" style="margin-top:28px">');
+  if(i<0) return html;
+  return html.slice(0,i)+`<div class="box" style="margin-top:28px"><h3>${A.learner.role==="parent"?"Family":"My account"}</h3>
+    <p class="muted small" style="margin:0 0 10px">${A.learner.role==="parent"?"Your children are kept in your parent account.":"Your details are kept in your student account."}</p>
+    <a class="btn sm ghost" href="#/account">Open my account</a></div></div>`;
+};
+
 /* ---------- booking: real classes can't be booked yet ---------- */
 const baseOpenBooking = openBooking;
 openBooking = function(cid,key){
@@ -241,9 +357,10 @@ openBooking = function(cid,key){
 /* ---------- router + start ---------- */
 const baseRender = render;
 render = function(){
-  if(routeName()==="admin"){
-    $("#app").innerHTML = adminPage();
-    document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r==="admin"));
+  const r=routeName();
+  if(r==="admin" || r==="account"){
+    $("#app").innerHTML = r==="admin" ? adminPage() : accountPage();
+    document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
 };
 (function start(){
@@ -252,16 +369,16 @@ render = function(){
   const h=location.hash;
   if(/error_description=/.test(h)){
     A.err = decodeURIComponent((h.match(/error_description=([^&]*)/)||[])[1]||"").replace(/\+/g," ") + ". Ask for a new link and try again.";
-    location.hash="#/studio";
+    location.hash="#/account";
   }
   chrome(); render();
   if(!sb) return;
   sb.auth.onAuthStateChange((event,session)=>{
-    if(event==="PASSWORD_RECOVERY"){ A.recovery=true; location.hash="#/studio" }
+    if(event==="PASSWORD_RECOVERY"){ A.recovery=true; location.hash="#/account" }
     const id=session?.user?.id||null;
     if(id!==(A.user?.id||null) || event==="PASSWORD_RECOVERY") setTimeout(async()=>{
       await refresh();
-      if(id && (routeName()==="" || /access_token=/.test(location.hash))) location.hash = A.admin && !A.teacher ? "#/admin" : "#/studio";
+      if(id && (["","account","studio"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.admin ? "#/admin" : "#/account";
     },0);
   });
   refresh();
