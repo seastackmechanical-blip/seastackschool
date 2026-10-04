@@ -39,6 +39,16 @@ jobs:
             -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh6bWFtZmdseG1qanhqc2V0dWFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NzM1MzcsImV4cCI6MjEwNjU0OTUzN30.LxHCsaYYS5SV4KV_vzaNtvVAfwyMQaONj8QkzDkJcb0" \
             -H "Content-Type: application/json" -d '{}'
 
+      # Sends any refund the database has marked as due and that was not sent at the moment of cancelling.
+      - name: Send due refunds
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        run: |
+          curl -s -m 60 -X POST "https://xzmamfglxmjjxjsetuaa.supabase.co/functions/v1/stripe-refunds" \
+            -H "apikey: sb_publishable_J6pwCLXOBOp2hXlI183_dw_m06F6Jhh" \
+            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh6bWFtZmdseG1qanhqc2V0dWFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5NzM1MzcsImV4cCI6MjEwNjU0OTUzN30.LxHCsaYYS5SV4KV_vzaNtvVAfwyMQaONj8QkzDkJcb0" \
+            -H "Content-Type: application/json" -d '{}'
+
       - name: Build for Cloudflare
         if: env.HAS_CLOUDFLARE == 'true'
         env:

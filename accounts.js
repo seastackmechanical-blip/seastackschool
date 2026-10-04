@@ -11,8 +11,13 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, contacts:[], thread:null, threadWith:null, amsgs:null};
-const CANCELLED = {};   // lesson dates a teacher has cancelled, keyed like BOOKED
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
+const CANCELLED = {};
+// Online payment (Stripe). Off until the admin switches it on; the numbers come from the database.
+const PAY = {enabled:false, fee:20, hours:24, payable:new Set()};
+const usd = cents => "$" + (cents/100).toFixed(2).replace(/\.00$/,"");
+// Countries where Stripe can pay a teacher out.
+const PAY_COUNTRIES = [["AU","Australia"],["AT","Austria"],["BE","Belgium"],["BR","Brazil"],["BG","Bulgaria"],["CA","Canada"],["HR","Croatia"],["CY","Cyprus"],["CZ","Czechia"],["DK","Denmark"],["EE","Estonia"],["FI","Finland"],["FR","France"],["DE","Germany"],["GR","Greece"],["HK","Hong Kong"],["HU","Hungary"],["IE","Ireland"],["IT","Italy"],["JP","Japan"],["LV","Latvia"],["LT","Lithuania"],["LU","Luxembourg"],["MT","Malta"],["MX","Mexico"],["NL","Netherlands"],["NZ","New Zealand"],["NO","Norway"],["PL","Poland"],["PT","Portugal"],["RO","Romania"],["SG","Singapore"],["SK","Slovakia"],["SI","Slovenia"],["ES","Spain"],["SE","Sweden"],["CH","Switzerland"],["TH","Thailand"],["AE","United Arab Emirates"],["GB","United Kingdom"],["US","United States"]];   // lesson dates a teacher has cancelled, keyed like BOOKED
 // Demo teachers and classes disappear by themselves once this many real teachers are listed.
 const DEMO_OFF_AT = 3;
 // Schools stay out of the top menu until teachers and families are working well; their pages still exist.
@@ -105,6 +110,9 @@ async function loadPublic(){
   const [t,c,n,sch,rv,cx] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name"), sb.from("reviews").select("*").order("updated_at",{ascending:false}), sb.from("class_cancellations").select("class_id,starts_at").gt("starts_at", new Date().toISOString())]);
   if(t.error || c.error) return;
   A.schools = sch.data || []; A.reviews = rv.data || [];
+  const ps = await sb.from("payment_settings").select("enabled,fee_percent,refund_hours").maybeSingle(), pt = await sb.rpc("payable_teachers");
+  if(ps.data){ PAY.enabled=!!ps.data.enabled; PAY.fee=ps.data.fee_percent; PAY.hours=ps.data.refund_hours }
+  PAY.payable = new Set((pt.data||[]).map(x=>typeof x==="string" ? x : x.payable_teachers));
   for(const k in BOOKED) delete BOOKED[k];
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
   for(const k in CANCELLED) delete CANCELLED[k];
@@ -122,8 +130,15 @@ async function loadPublic(){
   if(t.data.length >= DEMO_OFF_AT && TEACHERS.some(x=>!x.real)){
     for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(!arr[i].real) arr.splice(i,1);
     S.bookings=[]; save();      // demo bookings pointed at demo classes that are now gone
-    const rb=$(".demo-ribbon"); if(rb) rb.textContent="ONLINE PAYMENT IS NOT OPEN YET / NOTHING IS CHARGED WHEN YOU BOOK";
   }
+  payChrome();
+}
+// Wording that depends on whether online payment is open.
+function payChrome(){
+  window.PAYON = PAY.enabled; document.body.classList.toggle("pay-on", PAY.enabled);
+  const rb=$(".demo-ribbon"), demos=TEACHERS.some(x=>!x.real); if(!rb) return;
+  rb.textContent = demos ? (PAY.enabled ? "CLASSES MARKED DEMO ARE SAMPLES" : "CLASSES MARKED DEMO ARE SAMPLES / ONLINE PAYMENT IS NOT OPEN YET") : "ONLINE PAYMENT IS NOT OPEN YET / NOTHING IS CHARGED WHEN YOU BOOK";
+  rb.hidden = !demos && PAY.enabled;
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
@@ -156,6 +171,9 @@ async function loadMe(){
   A.notes = {};
   if(A.teacher){ const nt = await sb.rpc("my_class_attendees"); (nt.data||[]).forEach(x=>{ A.notes[x.booking_id]=x }) }
   if(A.teacher || A.learner){ const mc = await sb.rpc("my_message_contacts"); A.contacts = mc.data || [] }
+  A.payout=null; A.pays=[];
+  if(A.teacher){ const po = await sb.from("teacher_payouts").select("*").eq("teacher_id",A.user.id).maybeSingle(); A.payout = po.data || null }
+  if(A.teacher || A.learner){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -175,6 +193,7 @@ async function loadAdmin(){
   const sr = await sb.rpc("admin_list_schools"); if(!sr.error) A.srows = sr.data;
   const aq = await sb.from("teacher_qualifications").select("*").order("created_at"); A.aquals = aq.data || [];
   const am = await sb.rpc("admin_list_messages"); A.amsgs = am.data || [];
+  const ap = await sb.rpc("admin_list_payments"); A.apays = ap.data || [];
   const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
   const at = await sb.rpc("admin_attention"); if(!at.error) A.attn = at.data;
   const ib = await sb.rpc("admin_inbox"); if(!ib.error) A.inbox = ib.data;
@@ -267,6 +286,107 @@ function adminMsgs(){
     </tbody></table></div>`:`<div class="empty">No messages have been sent yet.</div>`}
   </div>`;
 }
+
+/* ---------- online payment (Stripe) ---------- */
+const PAY_LABEL = {paid:"Paid", kept:"Kept (late cancellation)", refund_due:"Refund on its way", refunded:"Refunded", pending:"Not completed"};
+function payNote(b){
+  const p=A.pays.find(x=>x.booking_id===b.id); if(!p) return "";
+  const m=usd(p.amount_cents);
+  return " · " + (p.status==="paid" ? "Paid "+m : p.status==="refund_due" ? "Refund of "+m+" on its way" : p.status==="refunded" ? m+" refunded" : p.status==="kept" ? m+" not refunded (cancelled less than "+PAY.hours+" hours before)" : "");
+}
+function refundHint(b){
+  const p=A.pays.find(x=>x.booking_id===b.id && x.status==="paid"); if(!p) return "";
+  return Date.parse(b.starts_at)-Date.now() >= PAY.hours*36e5 ? " (full refund)" : " (no refund: under "+PAY.hours+" hours' notice)";
+}
+// The database decides which payments are refunded; this asks the server to send those refunds now.
+function settleRefunds(){
+  if(!PAY.enabled && !A.pays.length && !(A.apays||[]).length) return;
+  try{ sb.functions.invoke("stripe-refunds",{body:{}}).then(()=>setTimeout(async()=>{ await loadMe(); render() },1500)).catch(()=>{}) }catch(e){}
+}
+function teacherPayBox(){
+  const p=A.payout, guess=(PAY_COUNTRIES.find(c=>c[1].toLowerCase()===(A.teacher.country||"").trim().toLowerCase())||[""])[0];
+  return `<div class="box" id="paybox"><h3>Getting paid</h3>
+    <p class="muted small">Families pay for a lesson when they book it. You receive ${100-PAY.fee}% of your lesson price, paid to your bank account by Stripe. SeastackSchool keeps ${PAY.fee}%. If a lesson is refunded, your share of it is taken back.${PAY.enabled?"":" Online payment is not open yet. You can connect now so that you are ready."}</p>
+    ${!p ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1;min-width:200px">Country you will be paid in<select id="pay-country"><option value="">Choose…</option>${PAY_COUNTRIES.map(c=>`<option value="${c[0]}" ${c[0]===guess?"selected":""}>${c[1]}</option>`).join("")}</select></label><button class="btn sm" id="paybtn" onclick="payConnect()">Connect Stripe</button></div>
+        <p class="small muted" style="margin:8px 0 0">Stripe pays out only in the countries listed. If yours is not there, you cannot be paid through the site yet. The country cannot be changed later.</p>`
+      : p.charges_enabled ? `<div class="ok">You can take paid bookings.${p.payouts_enabled?"":" Stripe has not switched on payouts to your bank yet. Open your Stripe dashboard to see what it needs."}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" onclick="payDashboard()">Open my Stripe dashboard</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`
+      : `<div class="notice">Stripe still needs some details from you before you can be paid.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" id="paybtn" onclick="payConnect()">Continue with Stripe</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`}
+  </div>`;
+}
+async function payConnect(){
+  const sel=$("#pay-country"), country=sel?sel.value:"", btn=$("#paybtn");
+  if(sel && !country) return toast("Choose the country you will be paid in");
+  if(btn){ btn.disabled=true; btn.textContent="Opening Stripe…" }
+  const r = await sb.functions.invoke("stripe-connect",{body:{action:"start",country}});
+  if(r.error || !r.data || !r.data.url){ toast((r.data && r.data.message) || "Stripe could not be opened. Try again."); render(); return }
+  location.href = r.data.url;
+}
+async function payStatus(say){
+  const r = await sb.functions.invoke("stripe-connect",{body:{action:"status"}}), d=r.data||{};
+  await loadMe(); await loadPublic();
+  if(say) toast(d.charges_enabled ? "You can take paid bookings" : d.connected ? "Stripe still needs some details from you" : d.message || "Not connected to Stripe yet");
+  render();
+}
+async function payDashboard(){
+  const r = await sb.functions.invoke("stripe-connect",{body:{action:"dashboard"}});
+  if(r.error || !r.data || !r.data.url) return toast((r.data && r.data.message) || "Your Stripe dashboard could not be opened");
+  location.href = r.data.url;
+}
+function teacherEarnings(){
+  const rows=A.pays.filter(p=>p.teacher_id===A.user.id && p.status!=="pending"); if(!rows.length) return "";
+  const share=p=>p.amount_cents-p.fee_cents, earned=rows.filter(p=>p.status==="paid"||p.status==="kept").reduce((s,p)=>s+share(p),0);
+  return `<h3 style="margin-top:24px">Payments for your lessons</h3>
+    <p class="muted small">Your share so far: <b>${usd(earned)}</b>, after SeastackSchool's ${PAY.fee}%. Stripe pays it to your bank account; see your Stripe dashboard for payout dates.</p>
+    ${rows.slice(0,30).map(p=>{ const w=new Date(p.starts_at); return `<div class="lesson"><div><b>${esc(p.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · for ${esc(p.attendee_name)}</div></div><span class="small">${PAY_LABEL[p.status]||p.status} · ${p.status==="paid"||p.status==="kept"?"your share "+usd(share(p)):usd(p.amount_cents)}</span></div>` }).join("")}`;
+}
+// Admin: switch payment on or off, see every payment, refund one.
+function adminPayments(){
+  const rows=A.apays||[], kept=rows.filter(p=>p.status==="paid"||p.status==="kept");
+  const gross=kept.reduce((s,p)=>s+p.amount_cents,0), fees=kept.reduce((s,p)=>s+p.fee_cents,0);
+  return `<div class="wrap page">
+    ${adminHead()}
+    <div class="${PAY.enabled?"ok":"notice"}" style="margin:0 0 14px"><b>Online payment is ${PAY.enabled?"ON":"OFF"}.</b> ${PAY.enabled?"Families pay when they book, and only teachers who have connected Stripe can be booked.":"Booking is free and nothing is charged. Switch it on only after your Stripe keys are saved and a test payment has worked."}
+      <div style="margin-top:10px"><button class="btn sm ${PAY.enabled?"ghost":""}" onclick="setPayments(${!PAY.enabled})">${A.payConfirm?"Confirm: switch payment "+(PAY.enabled?"off":"on"):"Switch payment "+(PAY.enabled?"off":"on")}</button></div></div>
+    <p class="muted">SeastackSchool keeps ${PAY.fee}% of each lesson. A family that cancels ${PAY.hours} hours or more before the lesson, and any lesson cancelled by the teacher or by you, is refunded in full automatically. Paid so far: <b>${usd(gross)}</b> in ${kept.length} ${kept.length===1?"lesson":"lessons"}, of which your fee is <b>${usd(fees)}</b> before Stripe's card charges.</p>
+    ${rows.length?`<div class="scroll"><table class="admin" style="min-width:860px"><thead><tr><th>Paid</th><th>Lesson</th><th>Family</th><th>Teacher</th><th>Amount</th><th>Your fee</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    ${rows.map(p=>{ const w=new Date(p.starts_at); return `<tr><td class="small">${new Date(p.paid_at||p.created_at).toLocaleDateString()}</td>
+      <td><b>${esc(p.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · for ${esc(p.attendee_name)}</div></td>
+      <td class="small">${esc(p.learner_name||"(account deleted)")}</td><td class="small">${esc(p.teacher_name||"(account deleted)")}</td>
+      <td>${usd(p.amount_cents)}</td><td>${usd(p.fee_cents)}</td>
+      <td class="small">${PAY_LABEL[p.status]||p.status}${p.refund_reason?`<div class="muted">${esc(p.refund_reason)}</div>`:""}</td>
+      <td>${p.status==="paid"||p.status==="kept"?`<button class="btn sm ghost" onclick="adminRefund('${p.id}')">${A.refunding===p.id?"Confirm refund":"Refund"}</button>`:""}</td></tr>` }).join("")}
+    </tbody></table></div>`:`<div class="empty">No payments yet.</div>`}
+  </div>`;
+}
+async function setPayments(on){
+  if(!A.payConfirm){ A.payConfirm=true; render(); return }
+  A.payConfirm=false;
+  const r = await sb.rpc("admin_set_payments_enabled",{p_enabled:on});
+  if(r.error) return toast(r.error.message);
+  await loadPublic(); toast(on?"Online payment is on":"Online payment is off"); render();
+}
+async function adminRefund(id){
+  if(A.refunding!==id){ A.refunding=id; render(); return }
+  A.refunding=null;
+  const r = await sb.rpc("admin_refund_payment",{p_id:id});
+  if(r.error){ toast(r.error.message); render(); return }
+  try{ await sb.functions.invoke("stripe-refunds",{body:{}}) }catch(e){}
+  await loadAdmin(); toast("Refund sent"); render();
+}
+// Coming back from Stripe's pages.
+(function payReturn(){
+  const q=new URLSearchParams(location.search), paid=q.get("paid"), st=q.get("stripe");
+  if(paid===null && !st) return;
+  q.delete("paid"); q.delete("stripe");
+  history.replaceState(null,"",location.pathname+(q.toString()?"?"+q:"")+location.hash);
+  setTimeout(()=>{
+    if(paid==="1"){ toast("Payment received. Your lesson is being booked."); [2500,8000].forEach(ms=>setTimeout(async()=>{ await loadMe(); await loadPublic(); render() },ms)) }
+    else if(paid==="0") toast("Payment cancelled. Nothing was charged.");
+    if(st) setTimeout(()=>{ if(A.teacher) payStatus(true) },2000);
+  },600);
+})();
 
 /* ---------- teacher photo ---------- */
 function teacherPhotoBox(){
@@ -417,7 +537,7 @@ studio = function(){
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}${teacherLevelBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?teacherPhotoBox()+profileForm()+teacherQualsBox()+teacherDocsBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?teacherPhotoBox()+profileForm()+teacherQualsBox()+teacherDocsBox()+teacherPayBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast()+teacherEarnings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
@@ -591,7 +711,7 @@ async function cancelDate(id, ms){
   A.cancelDateKey=null;
   const r = await sb.rpc("cancel_session",{p_class_id:id,p_starts_at:new Date(ms).toISOString()});
   if(r.error){ toast(r.error.message); render(); return }
-  const ids=r.data||[]; ids.forEach(b=>notifyBooking(b,"cancelled"));
+  const ids=r.data||[]; ids.forEach(b=>notifyBooking(b,"cancelled")); settleRefunds();
   await loadMe(); await loadPublic();
   toast(ids.length ? `Date cancelled, with ${ids.length} ${ids.length===1?"booking":"bookings"}` : "Date cancelled"); render();
 }
@@ -634,6 +754,7 @@ function adminPage(){
   if(A.adminTab==="reviews") return adminReviews();
   if(A.adminTab==="inbox") return adminInbox();
   if(A.adminTab==="msgs") return adminMsgs();
+  if(A.adminTab==="pay") return adminPayments();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -678,7 +799,7 @@ function adminHead(){
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
     ${attentionPanel()}
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("msgs","Messages ("+(A.amsgs||[]).length+")")}${tab("visits","Visits")}</div>`;
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("msgs","Messages ("+(A.amsgs||[]).length+")")}${tab("pay","Payments")}${tab("visits","Visits")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -758,7 +879,7 @@ function accountPage(){
       </form>
       ${parent?familyBox():""}${accountSettings()}
     </div><div>
-      <div class="box"><h3>My lessons</h3><p class="muted" style="margin:0 0 12px">${(n=>n===1?"1 upcoming lesson.":n+" upcoming lessons.")(A.bookings.filter(b=>b.learner_id===A.user.id && b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length)} Online payment is not open yet, so nothing is charged when you book.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/learning">Open my lessons</a><a class="btn sm ghost" href="#/classes">Find a class</a></div></div>
+      <div class="box"><h3>My lessons</h3><p class="muted" style="margin:0 0 12px">${(n=>n===1?"1 upcoming lesson.":n+" upcoming lessons.")(A.bookings.filter(b=>b.learner_id===A.user.id && b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length)}<span class="paynote"> Online payment is not open yet, so nothing is charged when you book.</span></p><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/learning">Open my lessons</a><a class="btn sm ghost" href="#/classes">Find a class</a></div></div>
     </div></div>
   </div>`;
 }
@@ -832,10 +953,10 @@ learning = function(){
 function bookingRow(b, upcoming){
   const c=cls(b.class_id), t=c?teacher(c.t):null, when=new Date(b.starts_at), link=A.links[b.class_id], inPerson=!!c && c.mode==="in_person", addr=A.addresses[b.class_id];
   return `<div class="lesson"><div><b>${c?esc(c.title):"Class no longer listed"}</b>
-    <div class="small muted">${fmtDay(when)}, ${fmtTime(when)} (your time)${t?" · with "+esc(t.name):""} · for ${esc(b.attendee_name)}</div>
+    <div class="small muted">${fmtDay(when)}, ${fmtTime(when)} (your time)${t?" · with "+esc(t.name):""} · for ${esc(b.attendee_name)}${payNote(b)}</div>
     ${!upcoming?"":inPerson?`<div class="small">${addr?"Where: "+esc(addr):`In person${c.place?" in "+esc(c.place):""}. The teacher hasn't added the address yet; it will appear here when they do.`}</div>`
       :!link?`<div class="small muted">The teacher hasn't added a lesson link yet. It will appear here when they do.</div>`:""}</div>
-    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link && !inPerson?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer" onclick="recordJoin('${b.id}')">Join lesson</a>`:""}${t?`<a class="btn ghost sm" href="#/messages/${t.id}">Message teacher</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:(b.status!=="booked" || !t ? ""
+    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link && !inPerson?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer" onclick="recordJoin('${b.id}')">Join lesson</a>`:""}${t?`<a class="btn ghost sm" href="#/messages/${t.id}">Message teacher</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel"+refundHint(b):"Cancel"}</button></div>`:(b.status!=="booked" || !t ? ""
       : b.attendance!=="no_show" ? `<a class="btn ghost sm" href="#/teacher/${t.id}">Rate this teacher</a>`
       : b.attendance_locked ? `<span class="small muted">Marked as not attended</span>`
       : b.attendance_disputed ? `<span class="small muted">Marked as not attended. Sent to SeastackSchool to review.</span>`
@@ -848,7 +969,7 @@ function realLessons(){
     ${up.length?up.map(b=>bookingRow(b,true)).join(""):`<div class="empty"><h3>No lessons booked yet</h3><p class="muted">Find a class that fits your week.</p><a class="btn" href="#/classes">Find classes</a></div>`}
     ${past.length?`<h3 style="margin-top:24px">Past lessons</h3>${past.map(b=>bookingRow(b,false)).join("")}`:""}
     ${gone.length?`<h3 style="margin-top:24px">Cancelled</h3>${gone.map(b=>bookingRow(b,false)).join("")}`:""}
-    <p class="small muted" style="margin-top:18px">Online payment is not open yet, so nothing is charged for these bookings.${A.learner.role==="parent"?` Your children are managed in <a href="#/account">your account</a>.`:""}</p>
+    <p class="small muted" style="margin-top:18px"><span class="paynote">Online payment is not open yet, so nothing is charged for these bookings.</span>${A.learner.role==="parent"?` Your children are managed in <a href="#/account">your account</a>.`:""}</p>
   </div>`;
 }
 // Opening an online lesson from here is recorded once, around the lesson time, so the teacher can see who joined.
@@ -858,7 +979,7 @@ async function cancelReal(id){
   A.cancelling=null;
   const r = await sb.rpc("cancel_booking",{p_booking_id:id});
   if(r.error){ toast(r.error.message); render(); return }
-  notifyBooking(id,"cancelled");
+  notifyBooking(id,"cancelled"); settleRefunds();
   await loadMe(); await loadPublic(); toast("Booking cancelled"); render();
 }
 // Emails the teacher and the learner. The booking itself never depends on this succeeding.
@@ -892,6 +1013,7 @@ function showRealBooking(){
   else if(!parent && c.ages[1]<13) block="This class is for children under 13, so it's booked from a parent account.";
   else if(parent && !A.children.length) block=`Add your child to your account first. <a href="#/account" onclick="$('#dlg').close()">Open my account</a>`;
   else if(parent && !kids.length) block=`This class is for ${ageLabel(c.ages).toLowerCase()}. None of the children on your account are that age.`;
+  if(!block && PAY.enabled && !PAY.payable.has(c.t)) block="This teacher isn't set up to take paid bookings yet. Please check back soon.";
   if(kids.length && !kids.some(k=>k.id===RB.child)) RB.child=kids[0].id;
   const ss=sessions(c);
   body.innerHTML = `<div class="dlg-head"><div><span class="tag ${c.type}">${typeLabel(c)}</span><h3 style="margin-top:6px">${esc(c.title)}</h3>
@@ -902,13 +1024,18 @@ function showRealBooking(){
     ${block?`<div class="notice">${block}</div>`:`
     ${parent?`<label class="field" style="margin:12px 0">Which child is this lesson for?<select id="rb-child" onchange="RB.child=this.value">${kids.map(k=>`<option value="${k.id}" ${RB.child===k.id?"selected":""}>${esc(k.first_name)}, ${k.age}</option>`).join("")}</select></label>`
             :`<p class="small" style="margin:12px 0">Booking for <b>${esc(A.learner.full_name||"you")}</b>.</p>`}
-    <p class="small muted">Online payment is not open yet, so nothing is charged when you book.</p>
+    <p class="small muted">${PAY.enabled?`You pay ${money(c.price)} on Stripe's secure page, then the lesson is booked. Full refund if you cancel ${PAY.hours} hours or more before the lesson, or if the teacher cancels.`:"Online payment is not open yet, so nothing is charged when you book."}</p>
     <div class="err" id="rberr">${esc(RB.err||"")}</div>
-    <div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="btn" id="rbbtn" ${RB.key && ss.some(s=>s.key===RB.key&&s.left)?"":"disabled"} onclick="bookReal()">Book this lesson</button></div>`}`;
+    <div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="btn" id="rbbtn" ${RB.key && ss.some(s=>s.key===RB.key&&s.left)?"":"disabled"} onclick="bookReal()">${PAY.enabled?"Pay "+money(c.price)+" and book":"Book this lesson"}</button></div>`}`;
 }
 async function bookReal(){
   const c=cls(RB.cid), start=+RB.key.split("@")[1], btn=$("#rbbtn"), parent=A.learner.role==="parent";
   btn.disabled=true; btn.textContent="Please wait…";
+  if(PAY.enabled){   // paid: Stripe takes the money first, and the booking is made when Stripe confirms it
+    const p = await sb.functions.invoke("stripe-checkout",{body:{class_id:c.id,starts_at:new Date(start).toISOString(),child_id:parent?RB.child:null,tz:TZ}});
+    if(p.error || !p.data || !p.data.url){ RB.err = (p.data && p.data.message) || "The payment page could not be opened. Nothing was charged."; await loadPublic(); render(); showRealBooking(); return }
+    location.href = p.data.url; return;
+  }
   const r = await sb.rpc("book_class",{p_class_id:c.id,p_starts_at:new Date(start).toISOString(),p_child_id:parent?RB.child:null});
   if(r.error){ RB.err=r.error.message; await loadPublic(); render(); showRealBooking(); return }
   notifyBooking(r.data,"booked");
@@ -925,6 +1052,7 @@ function teacherChecklist(){
     [A.quals.length>0 && A.quals.every(q=>q.doc_name), "Add your qualifications, with a photo of the document for each, so families know what you are qualified to teach", "profile", "Open My profile"],
     [A.tdocs.some(idDoc) || !!t.identity_checked_at, "Upload an identity document", "profile", "Open My profile"],
     [!!t.photo, "Add a profile photo", "profile", "Open My profile"],
+    ...(PAY.enabled ? [[!!(A.payout && A.payout.charges_enabled), "Connect Stripe so you can be paid. Classes can't be booked until you do", "profile", "Open My profile"]] : []),
     [cl.length>0, "Create your first class", "list", "Open My classes"],
     [cl.length>0 && cl.every(c=>c.mode==="in_person" ? !!A.addresses[c.id] : !!A.links[c.id]), "Add a lesson link (online) or address (in person) to every class", "list", "Open My classes"],
     [t.status==="approved", t.school_id ? "Be approved by your school" : "Be approved by SeastackSchool, which happens after we review your profile", null, ""]
@@ -1183,7 +1311,10 @@ function termsPage(){
     ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons."]],
     ["Messages",["A teacher and a student or parent can message each other once a lesson has been booked between them. Messages are for arranging and discussing lessons. Do not use them to move lessons or payment away from SeastackSchool, or to ask a child for personal contact details.","SeastackSchool can read messages to keep families and teachers safe, and can suspend an account that misuses them."]],
     ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
-    ["Prices and payment",["Prices are set by teachers and shown in US dollars. Online payment is not open yet: booking on SeastackSchool charges nothing. When payment opens, these terms will be updated first."]],
+    ["Prices and payment", PAY.enabled ? ["Prices are set by teachers and shown in US dollars. You pay for a lesson when you book it, on a secure page run by Stripe. SeastackSchool never sees or stores your card number.",
+      `SeastackSchool keeps ${PAY.fee}% of each lesson price as its fee. The teacher receives the rest, paid to them by Stripe.`,
+      `Refunds: if you cancel ${PAY.hours} hours or more before the lesson starts, you are refunded in full. If you cancel later than that, you are not refunded and the teacher is paid. If the teacher or SeastackSchool cancels, you are always refunded in full. A refund goes back to the card you paid with and can take several days to appear.`]
+      : ["Prices are set by teachers and shown in US dollars. Online payment is not open yet: booking on SeastackSchool charges nothing. When payment opens, these terms will be updated first."]],
     ["Ratings",["Only a student or parent who attended and finished a lesson can rate that teacher. Ratings must be honest and about the lesson. SeastackSchool, and a school for its own teachers, may hide a rating."]],
     ["Affiliates",["Affiliates are credited for accounts that sign up through their link. No commission is earned or paid until online payment opens and the rates are confirmed."]],
     ["What is not allowed",["Do not use SeastackSchool to harm or harass anyone, to contact children for any purpose other than their lessons, to post false or misleading information, to upload documents that are not yours, or to interfere with the site."]],
@@ -1193,7 +1324,7 @@ function termsPage(){
 }
 function privacyPage(){
   return legalPage("Privacy Policy","3 October 2026",[
-    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Teachers:</b> a profile photo, if you add one."]],
+    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Payments:</b> the lesson, the amount and the status of each payment. Card details are entered on Stripe's page and never reach SeastackSchool. Teachers who connect Stripe give their payout details to Stripe, not to us.","<b>Teachers:</b> a profile photo, if you add one."]],
     ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
     ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","A message is seen by the two people in the conversation. SeastackSchool staff can read messages when needed for safety.","A teacher's profile photo is public once the teacher is approved.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
