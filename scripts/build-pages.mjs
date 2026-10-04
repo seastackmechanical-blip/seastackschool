@@ -136,15 +136,24 @@ ${track(trackPath)}
 }
 
 /* ---------- build ---------- */
-const [teachers, classes, schools] = await Promise.all([
+const [teachers, classes, schools, reviews] = await Promise.all([
   get("teachers", "select=*&status=eq.approved&order=created_at"),
   get("classes", "select=*&order=created_at"),
   get("schools", "select=*&status=eq.approved&order=name"),
+  get("reviews", "select=*&order=updated_at.desc"),
 ]);
 const tById = new Map(teachers.map((t) => [t.id, t]));
 const live = classes.filter((c) => tById.has(c.teacher_id));
 const tSlug = (t) => slugify(t.full_name, t.id), cSlug = (c) => slugify(c.title, c.id);
 const sById = new Map(schools.map((s) => [s.id, s])), sSlug = (s) => slugify(s.name, s.id);
+const stars = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
+const reviewBox = (t) => {
+  const rs = reviews.filter((r) => r.teacher_id === t.id && !r.hidden);
+  if (!rs.length) return `<div class="box"><h2 style="font-size:22px">Reviews</h2><p class="muted" style="margin:0">No reviews yet.</p></div>`;
+  const avg = rs.reduce((a, r) => a + r.stars, 0) / rs.length;
+  return `<div class="box"><h2 style="font-size:22px">Reviews</h2><p><span class="stars">${stars(avg)}</span> <b>${avg.toFixed(1)}</b> from ${rs.length} ${rs.length === 1 ? "review" : "reviews"}</p>
+    ${rs.slice(0, 20).map((r) => `<div class="review"><span class="stars">${stars(r.stars)}</span>${r.body ? `<p style="margin:4px 0">${esc(r.body)}</p>` : ""}<span class="small muted">${esc(r.author)}</span></div>`).join("")}</div>`;
+};
 const schoolLink = (t) => { const s = sById.get(t.school_id); return s ? ` · <a href="${BASE}schools/${sSlug(s)}/">${esc(s.name)}</a>` : ""; };
 
 fs.rmSync(out, { recursive: true, force: true });
@@ -214,6 +223,7 @@ for (const t of teachers) {
 </div><div>
   <div class="box"><h2 style="font-size:22px">Book a lesson</h2><p class="muted" style="margin:0 0 14px">See lesson times in your own time zone and book with a free student or parent account.</p>
     <a class="btn" href="${BASE}#/teacher/${t.id}">View times and book ↗</a></div>
+  ${reviewBox(t)}
 </div></div>`,
   }));
 }

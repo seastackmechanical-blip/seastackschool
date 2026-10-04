@@ -488,10 +488,10 @@ function profile(id){
       </div>
       <div>
         <div class="box"><h3>Reviews</h3>
-          ${rv.map(r=>`<div class="review">${r.demo?DEMO+" ":""}<span class="stars">${starStr(r.stars)}</span><p style="margin:4px 0">${esc(r.text)}</p><span class="small muted">${esc(r.name)}</span></div>`).join("")}
+          ${rv.map(r=>`<div class="review">${r.demo?DEMO+" ":""}<span class="stars">${starStr(r.stars)}</span><p style="margin:4px 0">${esc(r.text)}</p><span class="small muted">${esc(r.name)}</span></div>`).join("") || `<p class="muted small" style="margin:0">No reviews yet.</p>`}
         </div>
         <div class="box"><h3>Leave a review</h3>
-          ${booked?`<form onsubmit="event.preventDefault();addReview('${id}',this)">
+          ${t.real?realReviewBox(id):booked?`<form onsubmit="event.preventDefault();addReview('${id}',this)">
             <label class="field">Rating<select name="stars">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} stars</option>`).join("")}</select></label>
             <label class="field" style="margin-top:8px">Your review<textarea name="text" rows="3" required></textarea></label>
             <button class="btn sm" style="margin-top:10px">Post review</button></form>`
@@ -743,7 +743,7 @@ $("#tzname").textContent=TZ;
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=10"></script>
+<script src="accounts.js?v=11"></script>
 
 </body>
 </html>

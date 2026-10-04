@@ -9,7 +9,8 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   ready:false, visits:null, vdays:30, vloading:false,
   aff:null, adash:null, arows:null, afilter:"pending",
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
-  srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false};
+  srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
+  reviews:[], rrows:null};
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -61,9 +62,9 @@ const slugify = (s,id) => (String(s||"").normalize("NFKD").replace(/[̀-ͯ]/g,""
 /* ---------- data ---------- */
 async function loadPublic(){
   if(!sb) return;
-  const [t,c,n,sch] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name")]);
+  const [t,c,n,sch,rv] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name"), sb.from("reviews").select("*").order("updated_at",{ascending:false})]);
   if(t.error || c.error) return;
-  A.schools = sch.data || [];
+  A.schools = sch.data || []; A.reviews = rv.data || [];
   for(const k in BOOKED) delete BOOKED[k];
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
   for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
@@ -108,6 +109,7 @@ function syncLearner(){
 async function loadAdmin(){
   const [r,l,b,f] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings"), sb.rpc("admin_list_affiliates")]);
   const sr = await sb.rpc("admin_list_schools"); if(!sr.error) A.srows = sr.data;
+  const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
   if(r.error || l.error || b.error || f.error) toast((r.error||l.error||b.error||f.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data; A.arows = f.data }
 }
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=true; render() }
@@ -308,6 +310,7 @@ function adminPage(){
   if(A.adminTab==="visits") return adminVisits();
   if(A.adminTab==="affiliates") return adminAffiliates();
   if(A.adminTab==="schools") return adminSchools();
+  if(A.adminTab==="reviews") return adminReviews();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -343,7 +346,7 @@ function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("visits","Visits")}</div>`;
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("visits","Visits")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -457,7 +460,7 @@ function bookingRow(b, upcoming){
   return `<div class="lesson"><div><b>${c?esc(c.title):"Class no longer listed"}</b>
     <div class="small muted">${fmtDay(when)}, ${fmtTime(when)} (your time)${t?" · with "+esc(t.name):""} · for ${esc(b.attendee_name)}</div>
     ${upcoming && !link?`<div class="small muted">The teacher hasn't added a lesson link yet. It will appear here when they do.</div>`:""}</div>
-    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Join lesson</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:""}</div>`;
+    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Join lesson</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:(b.status==="booked" && t?`<a class="btn ghost sm" href="#/teacher/${t.id}">Rate this teacher</a>`:"")}</div>`;
 }
 function realLessons(){
   const now=Date.now(), mine=A.bookings.filter(b=>b.learner_id===A.user.id), end=b=>Date.parse(b.starts_at)+90*6e4;
@@ -530,6 +533,54 @@ async function bookReal(){
   const who = parent ? (A.children.find(k=>k.id===RB.child)?.first_name||"your child") : (A.learner.full_name||"you");
   await loadMe(); await loadPublic();
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
+}
+
+/* ---------- ratings: real reviews for real teachers, from people who have had a lesson ---------- */
+const baseReviewsFor = reviewsFor;
+reviewsFor = function(tid){
+  const t=teacher(tid);
+  if(!t || !t.real) return baseReviewsFor(tid);
+  return A.reviews.filter(r=>r.teacher_id===tid && !r.hidden).map(r=>({t:tid, name:r.author, stars:r.stars, text:r.body}));
+};
+function realReviewBox(tid){
+  const t=teacher(tid), first=esc((t.name||"this teacher").split(" ")[0]), p=s=>`<p class="muted small" style="margin:0">${s}</p>`;
+  if(!A.user) return p(`Students and parents can rate ${first} after a lesson. <a href="#/account">Sign in</a>`);
+  if(!A.learner) return p(`Ratings come from students and parents who have had a lesson with ${first}.`);
+  const had=A.bookings.some(b=>b.learner_id===A.user.id && b.status==="booked" && Date.parse(b.starts_at)<=Date.now() && cls(b.class_id)?.t===tid);
+  if(!had) return p(`You can rate ${first} after you've had a lesson with them.`);
+  const mine=A.reviews.find(r=>r.teacher_id===tid && r.learner_id===A.user.id);
+  return `<form id="revf" novalidate onsubmit="event.preventDefault();submitReview('${tid}',this)">
+    <label class="field">Your rating<select name="stars" id="rv-stars">${[5,4,3,2,1].map(n=>`<option value="${n}" ${mine&&mine.stars===n?"selected":""}>${n} ${n===1?"star":"stars"}</option>`).join("")}</select></label>
+    <label class="field" style="margin-top:8px">Your review (optional)<textarea name="text" id="rv-text" rows="3" maxlength="1000">${esc(mine?mine.body:"")}</textarea></label>
+    <button class="btn sm" style="margin-top:10px">${mine?"Update my review":"Post review"}</button>
+    ${mine&&mine.hidden?`<p class="small muted" style="margin:8px 0 0">Your review is currently hidden by SeastackSchool.</p>`:""}</form>`;
+}
+async function submitReview(tid,f){
+  const r = await sb.rpc("submit_review",{p_teacher_id:tid,p_stars:+f.stars.value,p_body:f.text.value.trim()});
+  if(r.error) return toast(r.error.message);
+  await loadPublic(); toast("Review saved"); render();
+}
+function adminReviews(){
+  const rows=A.rrows||[];
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Ratings left by students and parents who have had a lesson with the teacher. Hide a review to remove it from the teacher's page and rating; you can show it again at any time.</p>
+    ${rows.length?`<div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Teacher</th><th>Rating</th><th>Review</th><th>From</th><th>Date</th><th>Action</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td><b>${esc(r.teacher_name||"(no name)")}</b></td>
+      <td><span class="stars">${starStr(r.stars)}</span></td>
+      <td class="small" style="max-width:320px">${esc(r.body||"(no text)")}</td>
+      <td class="small">${esc(r.author)}<div>${esc(r.learner_email)}</div></td>
+      <td class="small">${new Date(r.updated_at).toLocaleDateString()}</td>
+      <td>${r.hidden?`<span class="tag bad">Hidden</span><div class="acts"><button class="btn sm" onclick="setReviewHidden('${r.id}',false)">Show again</button></div>`:`<button class="btn sm ghost" onclick="setReviewHidden('${r.id}',true)">Hide</button>`}</td>
+    </tr>`).join("")}</tbody></table></div>`
+    :`<div class="empty">No reviews yet. They appear here once students and parents rate a teacher after a lesson.</div>`}
+  </div>`;
+}
+async function setReviewHidden(id,hidden){
+  const r = await sb.rpc("admin_set_review_hidden",{p_review_id:id,p_hidden:hidden});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); await loadPublic(); toast(hidden?"Review hidden":"Review shown again"); render();
 }
 
 /* ---------- schools: a school account, its documents, its teachers, its public page ---------- */
