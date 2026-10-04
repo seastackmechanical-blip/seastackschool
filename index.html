@@ -229,6 +229,7 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
 .tag.bad{background:#fbe9ec;color:#a04a5b}
 .err{color:#b23a52}
 @media(max-width:1050px){.hero-modern h1{font-size:clamp(44px,8vw,65px)}}
+input[type=file]{max-width:100%;min-width:0}
 </style>
 </head>
 <body>
@@ -483,7 +484,7 @@ function card(c){
     <div>
       <span class="tag ${c.type}">${typeLabel(c)}</span> ${c.mine?"":DEMO}
       <h3><button onclick="openBooking('${c.id}')">${esc(c.title)}</button></h3>
-      <div class="small"><a href="#/teacher/${t.id}">${esc(t.name)}</a> ${ratingLabel(t.id)}${t.city?` <span class="muted">from ${esc(t.city)}</span>`:""}${schoolTag(t)}</div>
+      <div class="small"><a href="#/teacher/${t.id}">${esc(t.name)}</a> ${ratingLabel(t.id)}${rankTag(t)}${t.city?` <span class="muted">from ${esc(t.city)}</span>`:""}${schoolTag(t)}</div>
       <div class="meta"><span>${modeLabel(c)}</span><span>${esc(c.subject)}</span><span>Taught in ${esc(c.lang)}</span><span>${ageLabel(c.ages)}</span><span>${c.level}</span><span>${c.mins} min</span></div>
       <div class="next">${nx?`Next: <b>${fmtDay(nx.start)}, ${fmtTime(nx.start)}</b>`:"No open times in the next two weeks"}</div>
     </div>
@@ -779,7 +780,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=21"></script>
+<script src="accounts.js?v=22"></script>
 
 </body>
 </html>

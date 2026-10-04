@@ -138,13 +138,14 @@ ${track(trackPath)}
 }
 
 /* ---------- build ---------- */
-const [teachers, classes, schools, reviews, cancels, qualRows] = await Promise.all([
+const [teachers, classes, schools, reviews, cancels, qualRows, levelRows] = await Promise.all([
   get("teachers", "select=*&status=eq.approved&order=created_at"),
   get("classes", "select=*&order=created_at"),
   get("schools", "select=*&status=eq.approved&order=name"),
   get("reviews", "select=*&order=updated_at.desc"),
   get("class_cancellations", "select=class_id,starts_at"),
   get("teacher_qualifications", "select=teacher_id,title,issuer,year&verified_at=not.is.null&order=created_at"),
+  get("rpc/teacher_levels", ""),
 ]);
 cancelled = new Set(cancels.map((x) => x.class_id + "@" + Date.parse(x.starts_at)));
 const tById = new Map(teachers.map((t) => [t.id, t]));
@@ -159,6 +160,9 @@ const reviewBox = (t) => {
   return `<div class="box"><h2 style="font-size:22px">Reviews</h2><p><span class="stars">${stars(avg)}</span> <b>${avg.toFixed(1)}</b> from ${rs.length} ${rs.length === 1 ? "review" : "reviews"}</p>
     ${rs.slice(0, 20).map((r) => `<div class="review"><span class="stars">${stars(r.stars)}</span>${r.body ? `<p style="margin:4px 0">${esc(r.body)}</p>` : ""}<span class="small muted">${esc(r.author)}</span></div>`).join("")}</div>`;
 };
+const RANKS = ["New teacher", "Verified teacher", "Established teacher", "Senior teacher"];
+const lvl = (t) => levelRows.find((x) => x.teacher_id === t.id) || { level: 0, lessons: 0 };
+const rankTag = (t) => `<span class="tag ${lvl(t).level ? "ok" : "group"}">${RANKS[lvl(t).level]}</span>`;
 const quals = (t) => qualRows.filter((x) => x.teacher_id === t.id);   // verified ones only: that is all the public key can read
 const schoolLink = (t) => { const s = sById.get(t.school_id); return s ? ` · <a href="${BASE}schools/${sSlug(s)}/">${esc(s.name)}</a>` : ""; };
 
@@ -220,9 +224,11 @@ for (const t of teachers) {
     jsonld: { "@context": "https://schema.org", "@type": "ProfilePage", mainEntity: { "@type": "Person", name, jobTitle: t.headline || undefined, knowsAbout: t.subjects?.length ? t.subjects : undefined, description: t.intro || undefined, knowsLanguage: t.languages?.length ? t.languages : undefined, url: `${SITE}teachers/${tSlug(t)}/` } },
     body: `<div class="crumbs"><a href="${BASE}teachers/">Teachers</a></div>
 <div class="profile-head"><div class="avatar lg" style="background:#C9D6F2" aria-hidden="true">${esc(initials(name))}</div>
-  <div><h1 style="margin:0">${esc(name)}</h1>${t.headline ? `<div><b>${esc(t.headline)}</b></div>` : ""}<div class="muted">${esc([[t.city, t.country].filter(Boolean).join(", ") ? "Teaching from " + [t.city, t.country].filter(Boolean).join(", ") : "", t.years_experience ? t.years_experience + " years' experience" : ""].filter(Boolean).join(" · "))}${schoolLink(t)}</div>${t.identity_checked_at || quals(t).length ? `<div class="small" style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${t.identity_checked_at ? `<span class="tag ok">Identity checked by SeastackSchool</span>` : ""}${quals(t).length ? `<span class="tag ok">${quals(t).length} verified ${quals(t).length === 1 ? "qualification" : "qualifications"}</span>` : ""}</div>` : ""}</div></div>
+  <div><h1 style="margin:0">${esc(name)}</h1>${t.headline ? `<div><b>${esc(t.headline)}</b></div>` : ""}<div class="muted">${esc([[t.city, t.country].filter(Boolean).join(", ") ? "Teaching from " + [t.city, t.country].filter(Boolean).join(", ") : "", t.years_experience ? t.years_experience + " years' experience" : ""].filter(Boolean).join(" · "))}${schoolLink(t)}</div>${t.identity_checked_at || quals(t).length ? `<div class="small" style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${rankTag(t)}${t.identity_checked_at ? `<span class="tag ok">Identity checked by SeastackSchool</span>` : ""}${quals(t).length ? `<span class="tag ok">${quals(t).length} verified ${quals(t).length === 1 ? "qualification" : "qualifications"}</span>` : ""}</div>` : ""}</div></div>
 <div class="cols"><div>
   <div class="box">${t.intro ? `<h2 style="font-size:22px">About me</h2><p>${esc(t.intro)}</p>` : ""}${t.experience ? `<h2 style="font-size:22px">Experience</h2><p>${esc(t.experience)}</p>` : ""}
+    <h2 style="font-size:22px">Teacher level</h2><p style="margin:0 0 12px">${rankTag(t)} <span class="small muted">${lvl(t).lessons} ${lvl(t).lessons === 1 ? "lesson" : "lessons"} taught on SeastackSchool. The level is worked out automatically from verified facts, lessons taught and ratings.</span></p>
+    ${t.teaches?.length ? `<h2 style="font-size:22px">Teaches</h2><div class="chips">${t.teaches.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}
     ${t.subjects?.length ? `<h2 style="font-size:22px">Subjects</h2><div class="chips">${t.subjects.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}
     ${t.education ? `<h2 style="font-size:22px">Education</h2><p style="white-space:pre-line">${esc(t.education)}</p>` : ""}
     ${quals(t).length ? `<h2 style="font-size:22px">Qualifications and certificates</h2><ul style="margin:0 0 8px;padding-left:20px">${quals(t).map((x) => `<li><b>${esc(x.title)}</b>${x.issuer ? ", " + esc(x.issuer) : ""}${x.year ? " (" + esc(x.year) + ")" : ""}</li>`).join("")}</ul>` : ""}

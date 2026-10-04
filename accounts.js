@@ -21,6 +21,10 @@ const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
 /* ---------- helpers ---------- */
+// Teacher level: worked out by the database from facts (teacher_levels). Nobody sets it by hand.
+const TEACH_LEVELS = ["Preschool","Primary","Secondary","University","Adults"];
+const RANKS = ["New teacher","Verified teacher","Established teacher","Senior teacher"];
+function rankTag(t){ return t && t.real ? ` <span class="tag ${t.lvl?"ok":"group"}" title="Teacher level on SeastackSchool">${RANKS[t.lvl||0]}</span>` : "" }
 // A teacher's listed qualifications: [{title, issuer, year}]
 function qualList(q){ return (Array.isArray(q)?q:[]).filter(x=>x && x.title).map(x=>({title:String(x.title),issuer:String(x.issuer||""),year:String(x.year||"")})) }
 function qualLine(x){ return `<b>${esc(x.title)}</b>${x.issuer?", "+esc(x.issuer):""}${x.year?" ("+esc(x.year)+")":""}` }
@@ -28,7 +32,10 @@ function qualLine(x){ return `<b>${esc(x.title)}</b>${x.issuer?", "+esc(x.issuer
 function teacherMore(t){
   if(!t || !t.real) return "";
   const q=t.quals||[];
-  return `${(t.subj||[]).length?`<h3>Subjects</h3><div class="chips">${t.subj.map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>`:""}
+  return `<h3>Teacher level</h3><p style="margin:0 0 4px">${rankTag(t)} <span class="small muted">${t.lessons} ${t.lessons===1?"lesson":"lessons"} taught on SeastackSchool</span></p>
+    <p class="small muted" style="margin:0 0 12px">${["New on SeastackSchool. Identity and qualifications are not both verified yet.","Identity checked and at least one qualification verified by SeastackSchool.","Verified, with 10 or more lessons taught here and good ratings.","Verified, with 50 or more lessons taught here and ratings averaging 4.5 or higher."][t.lvl||0]} The level is worked out automatically and cannot be bought or set by hand.</p>
+    ${(t.teaches||[]).length?`<h3>Teaches</h3><div class="chips">${t.teaches.map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>`:""}
+    ${(t.subj||[]).length?`<h3>Subjects</h3><div class="chips">${t.subj.map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>`:""}
     ${t.edu?`<h3>Education</h3><p style="white-space:pre-line">${esc(t.edu)}</p>`:""}
     ${q.length?`<h3>Qualifications and certificates</h3><ul style="margin:0 0 8px;padding-left:20px">${q.map(x=>`<li>${qualLine(x)}</li>`).join("")}</ul>`:""}
     ${q.length?`<p class="small muted" style="margin:0 0 12px">SeastackSchool has seen the document for each qualification listed here.</p>`:""}`;
@@ -100,9 +107,11 @@ async function loadPublic(){
   // only qualifications the admin has verified against a document are public
   const qv = await sb.from("teacher_qualifications").select("id,teacher_id,title,issuer,year,verified_at").not("verified_at","is",null).order("created_at");
   const QV = {}; (qv.data||[]).forEach(q=>{ (QV[q.teacher_id] = QV[q.teacher_id] || []).push(q) });
+  const lv = await sb.rpc("teacher_levels");
+  const LV = {}; (lv.data||[]).forEach(x=>{ LV[x.teacher_id]=x });
   const ok = new Set();
   t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,checked:!!x.identity_checked_at,color:"#C9D6F2",
-    years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience,headline:x.headline||"",country:x.country||"",edu:x.education||"",subj:x.subjects||[],quals:qualList(QV[x.id])}) });
+    years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience,headline:x.headline||"",country:x.country||"",edu:x.education||"",subj:x.subjects||[],quals:qualList(QV[x.id]),teaches:x.teaches||[],lvl:(LV[x.id]||{}).level||0,lessons:(LV[x.id]||{}).lessons||0,nrate:(LV[x.id]||{}).ratings||0,avg:+(LV[x.id]||{}).avg_stars||0}) });
   c.data.filter(x=>ok.has(x.teacher_id)).forEach(x=>CLASSES.push(toClass(x)));
   if(t.data.length >= DEMO_OFF_AT && TEACHERS.some(x=>!x.real)){
     for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(!arr[i].real) arr.splice(i,1);
@@ -265,7 +274,7 @@ studio = function(){
   const local = `<p class="small muted">This tool is saved in this browser only for now.</p>`;
   return `<div class="wrap page">
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
-    ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}
+    ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}${teacherLevelBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
     ${TAB==="profile"?profileForm()+teacherQualsBox()+teacherDocsBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
@@ -289,6 +298,7 @@ function profileForm(){
     <label class="field">Years of teaching experience<input name="years" id="pf-years" type="number" min="0" max="80" value="${t.years_experience}"></label>
     <label class="field" style="grid-column:1/-1">Teaching languages, separated by commas<input name="languages" id="pf-langs" value="${esc((t.languages||[]).join(", "))}" placeholder="English, French"></label>
     <label class="field" style="grid-column:1/-1">Introduction (students read this first)<textarea name="intro" id="pf-intro" rows="3" maxlength="2000">${esc(t.intro)}</textarea></label>
+    <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Who you teach</legend><div class="chips">${TEACH_LEVELS.map(l=>`<label class="chip"><input type="checkbox" name="teaches" value="${l}" ${(t.teaches||[]).includes(l)?"checked":""}> ${l}</label>`).join("")}</div></fieldset>
     <label class="field" style="grid-column:1/-1">Subjects you teach, separated by commas<input name="subjects" id="pf-subjects" value="${esc((t.subjects||[]).join(", "))}" placeholder="Maths, Physics"></label>
     <label class="field" style="grid-column:1/-1">Teaching experience (where and whom you have taught)<textarea name="experience" id="pf-exp" rows="3" maxlength="2000">${esc(t.experience)}</textarea></label>
     <label class="field" style="grid-column:1/-1">Education (where you studied and what)<textarea name="education" id="pf-edu" rows="2" maxlength="1500">${esc(t.education||"")}</textarea></label>
@@ -300,7 +310,8 @@ async function saveProfile(f){
   const row={full_name:f.full_name.value.trim(),city:f.city.value.trim(),timezone:f.timezone.value,years_experience:Math.max(0,Math.min(80,+f.years.value||0)),
     languages:f.languages.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),intro:f.intro.value.trim(),experience:f.experience.value.trim(),
     headline:f.headline.value.trim(),country:f.country.value.trim(),education:f.education.value.trim(),
-    subjects:f.subjects.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12)};
+    subjects:f.subjects.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),
+    teaches:[...f.querySelectorAll("[name=teaches]:checked")].map(x=>x.value)};
   const r = await sb.from("teachers").update(row).eq("id",A.user.id).select().maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
   A.teacher=r.data; await loadPublic(); toast("Profile saved"); render();
@@ -498,7 +509,7 @@ function adminPage(){
         <details style="margin-top:6px;padding:6px 10px"><summary class="small">Read profile</summary><p style="margin:6px 0"><b>Introduction</b><br>${esc(r.intro||"(empty)")}</p><p style="margin:6px 0"><b>Experience</b><br>${esc(r.experience||"(empty)")}</p>
           <p style="margin:6px 0"><b>Headline</b><br>${esc(r.headline||"(empty)")}</p><p style="margin:6px 0"><b>Country</b><br>${esc(r.country||"(empty)")}</p><p style="margin:6px 0"><b>Subjects</b><br>${esc((r.subjects||[]).join(", ")||"(empty)")}</p>
           <p style="margin:6px 0"><b>Education</b><br>${esc(r.education||"(empty)")}</p></details></td>
-      <td>${r.class_count} ${r.class_count===1?"class":"classes"}${r.school_name?`<div class="small muted">School: ${esc(r.school_name)}</div>`:""}
+      <td>${r.class_count} ${r.class_count===1?"class":"classes"}${(t=>t?`<div class="small" style="margin-top:4px">${rankTag(t)} <span class="muted">${t.lessons} taught</span></div>`:"")(teacher(r.id))}${r.school_name?`<div class="small muted">School: ${esc(r.school_name)}</div>`:""}
         <div class="small" style="margin-top:6px">${r.identity_checked_at?`<span class="tag ok">Identity checked</span> ${new Date(r.identity_checked_at).toLocaleDateString()}`:`<span class="tag group">Identity not checked</span>`}</div>
         <div class="small" style="margin-top:6px">${A.tdocsAdmin[r.id]?(A.tdocsAdmin[r.id].length?A.tdocsAdmin[r.id].map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showTeacherDocs('${r.id}')">Show documents</button>`}</div>
         <div class="acts"><button class="btn sm ghost" onclick="setIdentity('${r.id}',${!r.identity_checked_at})">${r.identity_checked_at?"Remove identity check":"Mark identity checked"}</button></div>
@@ -847,6 +858,19 @@ async function dropTDoc(i){
 async function showTeacherDocs(id){ A.tdocsAdmin[id] = await listDocs(id, "teacher-docs"); render() }
 /* ---------- qualifications: the public sees the title only; the admin verifies the document behind each one ---------- */
 const qualStatus = q => q.verified_at ? `<span class="tag ok">Verified</span>` : q.doc_name ? `<span class="tag group">Waiting for verification</span>` : `<span class="tag bad">Document needed</span>`;
+// The teacher's own view of their level and what the next one needs.
+function teacherLevelBox(){
+  const t=teacher(A.teacher.id);
+  if(!t || !t.real) return "";
+  const idOk=!!A.teacher.identity_checked_at, qOk=A.quals.some(q=>q.verified_at), rated=t.nrate>0;
+  const tick=(ok,text)=>`<div style="display:flex;gap:10px;align-items:baseline;padding:3px 0"><span aria-hidden="true" style="color:${ok?"var(--leaf)":"var(--muted)"};font-weight:700">${ok?"✓":"○"}</span><span ${ok?`class="muted"`:""}>${text}<span class="sr">${ok?" (done)":" (to do)"}</span></span></div>`;
+  const next = t.lvl===0 ? [[idOk,"Identity checked by SeastackSchool"],[qOk,"At least one qualification verified"]]
+    : t.lvl===1 ? [[t.lessons>=10,`10 lessons taught here (you have ${t.lessons})`],[!rated||t.avg>=4,"Ratings averaging 4.0 or higher"]]
+    : t.lvl===2 ? [[t.lessons>=50,`50 lessons taught here (you have ${t.lessons})`],[t.nrate>=5,`5 or more ratings (you have ${t.nrate})`],[t.avg>=4.5,"Ratings averaging 4.5 or higher"]] : [];
+  return `<div class="box" id="levelbox" style="margin:12px 0"><h3>Your level:${rankTag(t)}</h3>
+    ${next.length?`<p class="muted small" style="margin:0 0 6px">To reach <b>${RANKS[t.lvl+1]}</b>:</p>${next.map(x=>tick(x[0],x[1])).join("")}`:`<p class="muted small" style="margin:0">You are at the highest level. It stays while your ratings average 4.5 or higher.</p>`}
+    <p class="small muted" style="margin:8px 0 0">Your level is shown on your profile and classes. It is worked out automatically from verified facts, lessons taught and ratings.</p></div>`;
+}
 function teacherQualsBox(){
   const inp=`padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)`;
   return `<div class="box" id="qualbox"><h3>Qualifications</h3>
@@ -1004,7 +1028,7 @@ function termsPage(){
   return legalPage("Terms of Use","3 October 2026",[
     ["What SeastackSchool is",["SeastackSchool is a website where independent teachers and schools list lessons, online or in person, and students and parents book them. Teachers and schools are not employees of SeastackSchool. Each teacher or school is responsible for the lessons they give."]],
     ["Accounts",["You must give accurate information and keep your password to yourself. One person or one school per account.","Student accounts are for people aged 13 or over. Children under 13 do not have accounts: a parent or guardian books for them from a parent account and is responsible for those bookings."]],
-    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement."]],
+    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement. A teacher's level (New, Verified, Established, Senior) is worked out automatically from identity and qualification checks, lessons taught on SeastackSchool and ratings. It is not a guarantee of quality."]],
     ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons."]],
     ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
     ["Prices and payment",["Prices are set by teachers and shown in US dollars. Online payment is not open yet: booking on SeastackSchool charges nothing. When payment opens, these terms will be updated first."]],
@@ -1247,7 +1271,7 @@ function schoolPage(id){
       ${s.accreditation?`<div class="box"><h3>Registration and accreditation</h3><p style="margin:0 0 8px;white-space:pre-line">${esc(s.accreditation)}</p><p class="small muted" style="margin:0">Stated by the school. SeastackSchool has reviewed the school's documents; that is not accreditation by any authority.</p></div>`:""}
       <h3>Classes</h3>${cs.length?`<div class="list">${cs.map(card).join("")}</div>`:`<div class="empty">No classes listed yet.</div>`}
     </div><div>
-      <div class="box"><h3>Teachers</h3>${ts.length?ts.map(t=>`<div class="review"><a href="#/teacher/${t.id}"><b>${esc(t.name)}</b></a>${t.headline?`<div class="small">${esc(t.headline)}</div>`:""}<div class="small muted">${esc(t.langs.join(", "))}</div></div>`).join(""):`<p class="muted" style="margin:0">No teachers listed yet.</p>`}</div>
+      <div class="box"><h3>Teachers</h3>${ts.length?ts.map(t=>`<div class="review"><a href="#/teacher/${t.id}"><b>${esc(t.name)}</b></a>${rankTag(t)}${t.headline?`<div class="small">${esc(t.headline)}</div>`:""}<div class="small muted">${esc(t.langs.join(", "))}</div></div>`).join(""):`<p class="muted" style="margin:0">No teachers listed yet.</p>`}</div>
     </div></div>
   </div>`;
 }
