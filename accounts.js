@@ -5,7 +5,7 @@ const SB_KEY = "sb_publishable_J6pwCLXOBOp2hXlI183_dw_m06F6Jhh";
 const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
 const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"signin", msg:"", err:"", recovery:false, filter:"pending", removing:null,
   learner:null, children:[], lrows:null, kind:"student", adminTab:"teachers", removingChild:null,
-  bookings:[], links:{}, cancelling:null, brows:null, bfilter:"upcoming",
+  bookings:[], links:{}, addresses:{}, cancelling:null, brows:null, bfilter:"upcoming",
   ready:false, visits:null, vdays:30, vloading:false,
   aff:null, adash:null, arows:null, afilter:"pending",
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
@@ -28,9 +28,11 @@ function tzOffsetAt(tz, wallMs){
 function tzList(){ try{ return Intl.supportedValuesOf("timeZone") }catch(e){ return [TZ,"UTC"] } }
 function toClass(x){
   return {id:x.id,t:x.teacher_id,mine:true,real:true,title:x.title,subject:x.subject,lang:x.language,type:x.type,price:+x.price,cap:x.capacity,
-    ages:[x.age_min,x.age_max],level:x.level,days:x.days,hour:+x.start_time.slice(0,2)+(+x.start_time.slice(3,5))/60,mins:x.duration_min};
+    ages:[x.age_min,x.age_max],level:x.level,days:x.days,hour:+x.start_time.slice(0,2)+(+x.start_time.slice(3,5))/60,mins:x.duration_min,mode:x.mode||"online",place:x.place_city||""};
 }
 const DAY3 = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+// A class is online or in person. Demo classes carry no mode and count as online.
+function modeLabel(c){ return (c.mode||"online")==="in_person" ? "In person" + ((c.place||c.place_city) ? " · " + esc(c.place||c.place_city) : "") : "Online" }
 const routeName = () => location.hash.replace(/^#\/?/,"").split("/")[0];
 // Address of each teacher's and class's own page. Must stay identical to slugify() in scripts/build-pages.mjs.
 const SITE_BASE = location.origin + location.pathname.replace(/[^/]*$/,"");
@@ -75,7 +77,7 @@ async function loadPublic(){
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
-  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
+  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.addresses={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
   A.school=null; A.schoolPriv=null; A.members=[]; A.mclasses=[]; A.docs=[]; A.mySchool=null; A.srows=null; A.sdocs={};
   if(!A.user) return;
   const [t,adm,c,l,k,b,ln,af,sc,sp] = await Promise.all([
@@ -91,7 +93,7 @@ async function loadMe(){
     sb.from("school_private").select("*").eq("id",A.user.id).maybeSingle()]);
   A.teacher = t.data || null; A.admin = adm.data === true; A.classes = c.data || [];
   A.learner = l.data || null; A.children = k.data || [];
-  A.bookings = b.data || []; (ln.data||[]).forEach(x=>{ A.links[x.class_id]=x.url });
+  A.bookings = b.data || []; (ln.data||[]).forEach(x=>{ if(x.url) A.links[x.class_id]=x.url; if(x.address) A.addresses[x.class_id]=x.address });
   A.aff = af.data || null;
   if(A.aff){ const d = await sb.rpc("my_affiliate_dashboard"); A.adash = d.error ? null : d.data }
   A.school = sc.data || null; A.schoolPriv = sp.data || null;
@@ -251,8 +253,8 @@ function myClassList(){
   if(!A.classes.length) return `<div class="empty" style="margin-bottom:16px">You haven't listed a class yet.</div>`;
   return `<div style="margin-bottom:16px">${A.classes.map(x=>{ const c=toClass(x); return `<div class="lesson">
     <div><span class="tag ${c.type}">${typeLabel(c)}</span> <b>${esc(c.title)}</b>
-      <div class="small muted">${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (your time) · ${c.mins} min</div>
-      <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc(A.links[x.id]||"")}" placeholder="Lesson link (Zoom, Meet…): https://" aria-label="Lesson link for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">Save link</button></div>
+      <div class="small muted">${modeLabel(c)} · ${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (your time) · ${c.mins} min</div>
+      <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc((c.mode==="in_person"?A.addresses[x.id]:A.links[x.id])||"")}" placeholder="${c.mode==="in_person"?"Address (only people who booked can see it)":"Lesson link (Zoom, Meet…): https://"}" aria-label="${c.mode==="in_person"?"Address":"Lesson link"} for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">${c.mode==="in_person"?"Save address":"Save link"}</button></div>
       ${A.teacher.status==="approved"?`<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">This class's own page to share: <a href="${SITE_BASE}classes/${slugify(x.title,x.id)}/">${esc(SITE_BASE)}classes/${slugify(x.title,x.id)}/</a></div>`:""}</div>
     <button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div>` }).join("")}</div>`;
 }
@@ -263,11 +265,17 @@ addListing = async function(f){
   if(a1<a0) return toast("Oldest age must be the same as or above the youngest age");
   const row={teacher_id:A.user.id,title:f.title.value.trim(),subject:f.subject.value.trim(),language:f.lang.value.trim(),type,price:+f.price.value,
     capacity:type==="private"?1:Math.max(2,+f.cap.value||6),level:f.level.value,age_min:a0,age_max:a1,days,start_time:f.time.value,duration_min:+f.mins.value};
-  const link=(f.link?.value||"").trim();
+  const mode=f.mode.value, place=(f.place?.value||"").trim(), address=(f.address?.value||"").trim();
+  if(mode==="in_person" && !place) return toast("Enter the city or area where the class takes place");
+  row.mode=mode; row.place_city=mode==="in_person"?place:"";
+  const link=mode==="online"?(f.link?.value||"").trim():"";
   if(link && !/^https:\/\/\S+$/.test(link)) return toast("The lesson link must start with https://");
   const r = await sb.from("classes").insert(row).select("id").single();
   if(r.error) return toast(/row-level security/i.test(r.error.message) ? "Your account can't add classes right now" : r.error.message);
-  if(link){ const k = await sb.from("class_links").insert({class_id:r.data.id,url:link}); if(k.error) toast("Class saved, but the lesson link could not be saved") }
+  if(link || (mode==="in_person" && address)){
+    const k = await sb.from("class_links").insert({class_id:r.data.id,url:link||null,address:mode==="in_person"?address:null});
+    if(k.error) toast("Class saved, but the lesson link or address could not be saved");
+  }
   await loadMe(); await loadPublic(); toast("Class saved"); render();
 };
 async function removeClass(id){
@@ -279,13 +287,14 @@ async function removeClass(id){
 }
 // The link students use to join (the teacher's own Zoom, Meet, etc.). Only people who booked can see it.
 async function saveLink(id){
-  const url=($("#link-"+id)?.value||"").trim();
-  if(url && !/^https:\/\/\S+$/.test(url)) return toast("The lesson link must start with https://");
-  const r = url ? await sb.from("class_links").upsert({class_id:id,url,updated_at:new Date().toISOString()})
-                : await sb.from("class_links").delete().eq("class_id",id);
+  const c=A.classes.find(x=>x.id===id), inPerson=!!c && c.mode==="in_person", v=($("#link-"+id)?.value||"").trim();
+  if(!inPerson && v && !/^https:\/\/\S+$/.test(v)) return toast("The lesson link must start with https://");
+  const now=new Date().toISOString();
+  const r = v ? await sb.from("class_links").upsert(inPerson ? {class_id:id,address:v,url:null,updated_at:now} : {class_id:id,url:v,address:null,updated_at:now})
+              : await sb.from("class_links").delete().eq("class_id",id);
   if(r.error) return toast(r.error.message);
-  if(url) A.links[id]=url; else delete A.links[id];
-  toast(url?"Lesson link saved":"Lesson link removed");
+  const map=inPerson?A.addresses:A.links; if(v) map[id]=v; else delete map[id];
+  toast(inPerson ? (v?"Address saved":"Address removed") : (v?"Lesson link saved":"Lesson link removed"));
 }
 function teacherBookings(){
   const ids=new Set(A.classes.map(c=>c.id)), now=Date.now();
@@ -296,7 +305,7 @@ function teacherBookings(){
   return `<p class="muted">Times are shown in your time zone (${esc(TZ)}).</p>` + Object.keys(groups).sort((x,y)=>x.split("@")[1]-y.split("@")[1]).map(k=>{
     const list=groups[k], c=A.classes.find(x=>x.id===list[0].class_id), when=new Date(list[0].starts_at);
     return `<div class="box"><div class="results-head"><h3 style="margin:0">${esc(c.title)}</h3><span class="small muted">${fmtDay(when)}, ${fmtTime(when)} · ${list.length} of ${c.capacity} booked</span></div>
-      ${A.links[c.id]?"":`<p class="small" style="color:var(--rose);margin:0 0 6px">Add a lesson link for this class under My classes so students can join.</p>`}
+      ${A.links[c.id] || c.mode==="in_person"?"":`<p class="small" style="color:var(--rose);margin:0 0 6px">Add a lesson link for this class under My classes so students can join.</p>`}
       ${list.map(b=>`<div class="lesson" style="margin:8px 0 0"><span>${esc(b.attendee_name)}</span><button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button></div>`).join("")}</div>`;
   }).join("");
 }
@@ -307,10 +316,10 @@ function teacherPast(){
   const past=A.bookings.filter(b=>ids.has(b.class_id) && b.status==="booked" && at(b)<=now && at(b)>now-45*864e5).sort((x,y)=>at(y)-at(x));
   if(!past.length) return "";
   return `<h3 style="margin-top:24px">Lessons that have started</h3>
-    <p class="muted small">Everyone counts as attended unless you mark "Did not attend". Someone marked as not attending cannot rate you for that lesson, and can ask SeastackSchool to review the mark. Shows the last 45 days.</p>` +
+    <p class="muted small">Everyone counts as attended unless you mark "Did not attend". Someone marked as not attending cannot rate you for that lesson, and can ask SeastackSchool to review the mark. For online lessons you can see whether each person opened the lesson from SeastackSchool. Use it as a guide: someone may have joined from a link they saved earlier. Shows the last 45 days.</p>` +
     past.map(b=>{ const c=A.classes.find(x=>x.id===b.class_id), w=new Date(b.starts_at), no=b.attendance==="no_show";
       return `<div class="lesson"><div><b>${esc(b.attendee_name)}</b> <span class="tag ${no?"bad":"ok"}">${no?"Did not attend":"Attended"}</span>
-        <div class="small muted">${esc(c.title)} · ${fmtDay(w)}, ${fmtTime(w)}${b.attendance_disputed?" · the family says this is wrong; SeastackSchool will review it":""}</div></div>
+        <div class="small muted">${esc(c.title)} · ${fmtDay(w)}, ${fmtTime(w)}${c.mode==="in_person"?" · in person":b.joined_at?" · opened the lesson at "+fmtTime(new Date(b.joined_at)):" · did not open the lesson from SeastackSchool"}${b.attendance_disputed?" · the family says this is wrong; SeastackSchool will review it":""}</div></div>
         ${b.attendance_locked?`<span class="small muted">Decided by SeastackSchool</span>`:`<button class="btn sm ghost" onclick="markAttendance('${b.id}','${no?"attended":"no_show"}')">${no?"Mark as attended":"Did not attend"}</button>`}</div>` }).join("");
 }
 async function markAttendance(id,value){
@@ -405,7 +414,7 @@ function adminBookings(){
       <td><b>${esc(b.class_title)}</b><div class="small">${esc(b.teacher_name||"(no name)")} · ${esc(b.teacher_email)}</div></td>
       <td>${esc(b.attendee_name)}</td>
       <td>${esc(b.learner_name||"(no name)")} <span class="small muted">(${b.learner_role})</span><div class="small">${esc(b.learner_email)}</div><div class="small muted">Booked ${new Date(b.created_at).toLocaleDateString()}</div></td>
-      <td><span class="tag ${b.status==="cancelled"?"bad":upcoming?"ok":"group"}">${b.status==="cancelled"?"Cancelled":upcoming?"Booked":b.attendance==="no_show"?"Did not attend":"Took place"}</span>${b.attendance_disputed?`<div class="small" style="color:var(--rose);margin-top:4px">The family disputes this</div>`:""}${b.attendance_locked?`<div class="small muted" style="margin-top:4px">Attendance decided by you</div>`:""}${b.status==="cancelled"?`<div class="small muted" style="margin-top:4px">by ${who[b.cancelled_by_kind]||"someone"}, ${new Date(b.cancelled_at).toLocaleDateString()}</div>`:""}${b.emailed?"":`<div class="small muted" style="margin-top:4px">No booking email sent</div>`}</td>
+      <td><span class="tag ${b.status==="cancelled"?"bad":upcoming?"ok":"group"}">${b.status==="cancelled"?"Cancelled":upcoming?"Booked":b.attendance==="no_show"?"Did not attend":"Took place"}</span>${b.attendance_disputed?`<div class="small" style="color:var(--rose);margin-top:4px">The family disputes this</div>`:""}${b.attendance_locked?`<div class="small muted" style="margin-top:4px">Attendance decided by you</div>`:""}${b.status==="cancelled"?`<div class="small muted" style="margin-top:4px">by ${who[b.cancelled_by_kind]||"someone"}, ${new Date(b.cancelled_at).toLocaleDateString()}</div>`:""}${b.emailed?"":`<div class="small muted" style="margin-top:4px">No booking email sent</div>`}${b.mode==="in_person"?`<div class="small muted" style="margin-top:4px">In person</div>`:b.joined_at?`<div class="small muted" style="margin-top:4px">Opened the lesson at ${fmtTime(new Date(b.joined_at))}</div>`:""}</td>
       <td>${upcoming?`<button class="btn sm ghost" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button>`
           :b.status==="booked"?`<div class="acts" style="margin:0"><button class="btn sm ghost" onclick="markAttendance('${b.id}','attended')">Attended</button><button class="btn sm ghost" onclick="markAttendance('${b.id}','no_show')">Did not attend</button></div>`:""}</td>
     </tr>` }).join("")}</tbody></table></div>${rows.length>=500?`<p class="small muted">Showing the 500 most recent bookings.</p>`:""}`
@@ -480,11 +489,12 @@ async function dropChild(id){
 const baseLearning = learning;
 learning = function(){ return A.learner ? realLessons() : baseLearning() };
 function bookingRow(b, upcoming){
-  const c=cls(b.class_id), t=c?teacher(c.t):null, when=new Date(b.starts_at), link=A.links[b.class_id];
+  const c=cls(b.class_id), t=c?teacher(c.t):null, when=new Date(b.starts_at), link=A.links[b.class_id], inPerson=!!c && c.mode==="in_person", addr=A.addresses[b.class_id];
   return `<div class="lesson"><div><b>${c?esc(c.title):"Class no longer listed"}</b>
     <div class="small muted">${fmtDay(when)}, ${fmtTime(when)} (your time)${t?" · with "+esc(t.name):""} · for ${esc(b.attendee_name)}</div>
-    ${upcoming && !link?`<div class="small muted">The teacher hasn't added a lesson link yet. It will appear here when they do.</div>`:""}</div>
-    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Join lesson</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:(b.status!=="booked" || !t ? ""
+    ${!upcoming?"":inPerson?`<div class="small">${addr?"Where: "+esc(addr):`In person${c.place?" in "+esc(c.place):""}. The teacher hasn't added the address yet; it will appear here when they do.`}</div>`
+      :!link?`<div class="small muted">The teacher hasn't added a lesson link yet. It will appear here when they do.</div>`:""}</div>
+    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link && !inPerson?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer" onclick="recordJoin('${b.id}')">Join lesson</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:(b.status!=="booked" || !t ? ""
       : b.attendance!=="no_show" ? `<a class="btn ghost sm" href="#/teacher/${t.id}">Rate this teacher</a>`
       : b.attendance_locked ? `<span class="small muted">Marked as not attended</span>`
       : b.attendance_disputed ? `<span class="small muted">Marked as not attended. Sent to SeastackSchool to review.</span>`
@@ -500,6 +510,8 @@ function realLessons(){
     <p class="small muted" style="margin-top:18px">Online payment is not open yet, so nothing is charged for these bookings.${A.learner.role==="parent"?` Your children are managed in <a href="#/account">your account</a>.`:""}</p>
   </div>`;
 }
+// Opening an online lesson from here is recorded once, around the lesson time, so the teacher can see who joined.
+function recordJoin(id){ try{ sb.rpc("record_join",{p_booking_id:id}).then(()=>{}, ()=>{}) }catch(e){} }
 async function cancelReal(id){
   if(A.cancelling!==id){ A.cancelling=id; render(); return }
   A.cancelling=null;
@@ -526,7 +538,7 @@ function showRealBooking(){
   if(RB.done){
     body.innerHTML = `<div class="dlg-head"><h3>You're booked</h3>${x}</div>
       <div class="ok"><b>${esc(c.title)}</b><div>${fmtDay(RB.done.start)}, ${fmtTime(RB.done.start)} (your time) · for ${esc(RB.done.who)}</div></div>
-      <p class="small muted" style="margin-top:12px">Nothing was charged: online payment is not open yet. ${A.links[c.id]?"The lesson link is in My lessons.":"The teacher hasn't added a lesson link yet. It will appear in My lessons when they do."}</p>
+      <p class="small muted" style="margin-top:12px">Nothing was charged: online payment is not open yet. ${c.mode==="in_person"?`This class is in person${c.place?" in "+esc(c.place):""}. The address is in My lessons once the teacher has added it.`:A.links[c.id]?"The lesson link is in My lessons.":"The teacher hasn't added a lesson link yet. It will appear in My lessons when they do."}</p>
       <div style="display:flex;justify-content:flex-end"><a class="btn" href="#/learning" onclick="$('#dlg').close()">Go to My lessons</a></div>`;
     return;
   }
@@ -542,7 +554,7 @@ function showRealBooking(){
   if(kids.length && !kids.some(k=>k.id===RB.child)) RB.child=kids[0].id;
   const ss=sessions(c);
   body.innerHTML = `<div class="dlg-head"><div><span class="tag ${c.type}">${typeLabel(c)}</span><h3 style="margin-top:6px">${esc(c.title)}</h3>
-    <div class="small">with <a href="#/teacher/${t.id}" onclick="$('#dlg').close()">${esc(t.name)}</a> · ${c.mins} min · ${money(c.price)} · ${ageLabel(c.ages)}</div></div>${x}</div>
+    <div class="small">with <a href="#/teacher/${t.id}" onclick="$('#dlg').close()">${esc(t.name)}</a> · ${c.mins} min · ${money(c.price)} · ${ageLabel(c.ages)} · ${modeLabel(c)}</div></div>${x}</div>
     <p class="small muted" style="margin-top:12px">Times are shown in your time zone (${esc(TZ)}).</p>
     <div class="slots" role="group" aria-label="Choose a time">${ss.map(s=>`<button class="slot" aria-pressed="${RB.key===s.key}" ${s.left?"":"disabled"} onclick="RB.key='${s.key}';RB.err='';showRealBooking()"><b>${fmtDay(s.start)}</b>${fmtTime(s.start)}<div class="small ${s.left<=2&&s.left?"places low":"muted"}">${s.left?(c.type==="private"?"Open":s.left+" of "+c.cap+" places left"):"Full"}</div></button>`).join("") || "<p>No open times in the next two weeks.</p>"}</div>
     ${block?`<div class="notice">${block}</div>`:`

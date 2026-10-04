@@ -169,29 +169,30 @@ const urls = [SITE];
 const classCard = (c) => { const t = tById.get(c.teacher_id); return `<a class="listing linkcard" href="${BASE}classes/${cSlug(c)}/" style="grid-template-columns:1fr auto">
   <div><span class="tag ${c.type}">${esc(typeLabel(c))}</span><h3 style="margin:6px 0 2px">${esc(c.title)}</h3>
     <div class="small">with ${esc(t.full_name || "a SeastackSchool teacher")}${t.city ? ` <span class="muted">from ${esc(t.city)}</span>` : ""}</div>
-    <div class="meta"><span>${esc(c.subject)}</span><span>Taught in ${esc(c.language)}</span><span>${ages(c)}</span><span>${esc(c.level)}</span><span>${c.duration_min} min</span></div></div>
+    <div class="meta"><span>${c.mode === "in_person" ? "In person" + (c.place_city ? " · " + esc(c.place_city) : "") : "Online"}</span><span>${esc(c.subject)}</span><span>Taught in ${esc(c.language)}</span><span>${ages(c)}</span><span>${esc(c.level)}</span><span>${c.duration_min} min</span></div></div>
   <div class="price"><b>${money(c.price)}</b><span class="small muted">per lesson</span></div></a>`; };
 
 for (const c of live) {
   const t = tById.get(c.teacher_id), tz = t.timezone || "UTC", tName = t.full_name || "a SeastackSchool teacher";
   const kind = c.type === "private" ? "private lesson" : "small group class";
+  const inPerson = c.mode === "in_person", where = inPerson ? `in-person${c.place_city ? " (" + c.place_city + ")" : ""}` : "live online";
   const when = `Every ${listWords(c.days.slice().sort().map((d) => DAYS[d]))} at ${c.start_time.slice(0, 5)}, ${esc(tz.replace(/_/g, " "))} time`;
   const next = nextSessions(c, tz);
-  const desc = `${c.title}: a live online ${c.subject} ${kind} with ${tName} on SeastackSchool. ${c.level}, ${ages(c).toLowerCase()}, taught in ${c.language}, ${c.duration_min} minutes, ${money(c.price)} per lesson.`;
+  const desc = `${c.title}: ${inPerson ? "an" : "a"} ${where} ${c.subject} ${kind} with ${tName} on SeastackSchool. ${c.level}, ${ages(c).toLowerCase()}, taught in ${c.language}, ${c.duration_min} minutes, ${money(c.price)} per lesson.`;
   urls.push(page({
     file: `classes/${cSlug(c)}/index.html`, trackPath: `/classes/${cSlug(c)}`,
-    title: `${c.title} | Online ${c.subject} ${kind} with ${tName} | SeastackSchool`, desc,
+    title: `${c.title} | ${inPerson ? "In-person" : "Online"} ${c.subject} ${kind} with ${tName} | SeastackSchool`, desc,
     jsonld: { "@context": "https://schema.org", "@type": "Course", name: c.title, description: desc, inLanguage: c.language,
       provider: { "@type": "Organization", name: "SeastackSchool", url: SITE },
       offers: { "@type": "Offer", price: Number(c.price), priceCurrency: "USD", category: "Paid" },
-      hasCourseInstance: { "@type": "CourseInstance", courseMode: "Online", instructor: { "@type": "Person", name: tName, url: `${SITE}teachers/${tSlug(t)}/` } } },
+      hasCourseInstance: { "@type": "CourseInstance", courseMode: inPerson ? "Onsite" : "Online", instructor: { "@type": "Person", name: tName, url: `${SITE}teachers/${tSlug(t)}/` } } },
     body: `<div class="crumbs"><a href="${BASE}classes/">Classes</a> › ${esc(c.subject)}</div>
 <span class="tag ${c.type}">${esc(typeLabel(c))}</span>
 <h1>${esc(c.title)}</h1>
-<p class="lead">A live online ${esc(c.subject)} ${kind} with <a href="${BASE}teachers/${tSlug(t)}/">${esc(tName)}</a>${t.city ? `, teaching from ${esc(t.city)}` : ""}.</p>
+<p class="lead">${inPerson ? "An" : "A"} ${esc(where)} ${esc(c.subject)} ${kind} with <a href="${BASE}teachers/${tSlug(t)}/">${esc(tName)}</a>${t.city ? `, teaching from ${esc(t.city)}` : ""}.</p>
 <div class="cols" style="margin-top:22px"><div>
   <div class="box"><h2 style="font-size:22px">About this class</h2>
-    <dl class="facts"><dt>Subject</dt><dd>${esc(c.subject)}</dd><dt>Taught in</dt><dd>${esc(c.language)}</dd><dt>Level</dt><dd>${esc(c.level)}</dd><dt>For</dt><dd>${ages(c)}</dd>
+    <dl class="facts"><dt>Where</dt><dd>${inPerson ? "In person" + (c.place_city ? ", " + esc(c.place_city) : "") + " (the address is shown after booking)" : "Online"}</dd><dt>Subject</dt><dd>${esc(c.subject)}</dd><dt>Taught in</dt><dd>${esc(c.language)}</dd><dt>Level</dt><dd>${esc(c.level)}</dd><dt>For</dt><dd>${ages(c)}</dd>
       <dt>Class size</dt><dd>${c.type === "private" ? "One student, one-to-one with the teacher" : "Up to " + c.capacity + " students"}</dd><dt>Lesson length</dt><dd>${c.duration_min} minutes</dd><dt>Price</dt><dd>${money(c.price)} USD per lesson</dd></dl></div>
   <div class="box"><h2 style="font-size:22px">When it runs</h2><p style="margin:0">${when}.</p>
     ${next.length ? `<p class="small muted" style="margin:12px 0 0">Next lessons in <span data-tzname>the teacher's time zone</span>:</p><ul class="times">${next.map((iso) => `<li><time data-local datetime="${iso}">${esc(new Date(iso).toLocaleString("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }))}</time></li>`).join("")}</ul>` : ""}</div>

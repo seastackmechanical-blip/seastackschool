@@ -389,7 +389,7 @@ function home(){
  const artFor=(c,i)=>{const s=c.subject.toLowerCase();return artwork[/cod|program|comput/.test(s)?0:/math|algebra|geometr/.test(s)?1:/scien|chem|physic|bio/.test(s)?2:/art|draw|paint|design/.test(s)?3:i%4]};
  return `
  <section class="wrap hero-modern">
-  <div><div class="hero-coordinates">SEASTACKSCHOOL / TEACHERS EVERYWHERE. LEARNING FOR ANYONE.</div><div class="eyebrow">FOR THE CURIOUS. THE BUILDERS. THE WHAT-IF PEOPLE.</div><h1>Go beyond<br>what you<br><em>already know.</em></h1><p class="lead">SeastackSchool is where teachers anywhere offer live online lessons and students anywhere book them. Choose a private lesson or a small group class, shown in your own time zone.</p>
+  <div><div class="hero-coordinates">SEASTACKSCHOOL / TEACHERS EVERYWHERE. LEARNING FOR ANYONE.</div><div class="eyebrow">FOR THE CURIOUS. THE BUILDERS. THE WHAT-IF PEOPLE.</div><h1>Go beyond<br>what you<br><em>already know.</em></h1><p class="lead">SeastackSchool is where teachers and schools offer lessons, online or in person, and students book them. Choose a private lesson or a small group class, shown in your own time zone.</p>
   <div class="hero-actions"><a class="btn" href="#/classes">Find a class ↗</a><a class="btn ghost" href="#/studio" onclick="startTeaching()">Start teaching</a></div><form class="hero-search" onsubmit="event.preventDefault();S.filters={q:this.q.value,subject:'',lang:'',age:'',level:'',type:'',when:'',price:''};location.hash='#/classes'"><span aria-hidden="true">⌕</span><label class="sr" for="hq">What do you want to learn?</label><input id="hq" name="q" placeholder="Search a subject, skill, or teacher"><button class="btn">Search ↗</button></form>
   <div class="popular">QUICK EXPLORE: <button onclick="discover('Spanish')">Spanish</button><button onclick="discover('Coding')">Coding</button><button onclick="discover('Music')">Music</button><button onclick="discover('Art')">Art</button></div>
   <div class="hero-notes"><span>✓ For children and adults</span><span>✓ Free student, parent and teacher accounts</span></div></div>
@@ -419,6 +419,7 @@ function browse(){
       <label class="field">Highest price per lesson (USD)<input type="number" min="1" value="${esc(F.price)}" oninput="S.filters.price=this.value;renderResults()" placeholder="e.g. 20"></label>
       <label class="field">Level<select onchange="S.filters.level=this.value;renderResults()">${optionList(["Beginner","Intermediate","Advanced"],F.level,"Any level")}</select></label>
       <div class="field">Class type<div class="chips">${chip("type","private","Private lesson")}${chip("type","group","Small group")}</div></div>
+      <div class="field">Where<div class="chips">${chip("mode","online","Online")}${chip("mode","in_person","In person")}</div></div>
       <div class="field">When (your time)<div class="chips">${chip("when","morning","Mornings")}${chip("when","afternoon","Afternoons")}${chip("when","evening","Evenings")}${chip("when","weekend","Weekends")}</div></div>
       <button class="btn ghost sm" onclick="S.filters={q:'',subject:'',lang:'',age:'',level:'',type:'',when:'',price:''};render()">Clear filters</button>
     </aside>
@@ -432,6 +433,7 @@ function matches(c){
   if(F.lang && c.lang!==F.lang) return false;
   if(F.level && c.level!==F.level) return false;
   if(F.type && c.type!==F.type) return false;
+  if(F.mode && (c.mode||"online")!==F.mode) return false;
   if(F.age){ const a=+F.age; if(a<c.ages[0]||a>c.ages[1]) return false }
   if(F.price && c.price>+F.price) return false;
   if(F.when){
@@ -458,7 +460,7 @@ function card(c){
       <span class="tag ${c.type}">${typeLabel(c)}</span> ${c.mine?"":DEMO}
       <h3><button onclick="openBooking('${c.id}')">${esc(c.title)}</button></h3>
       <div class="small"><a href="#/teacher/${t.id}">${esc(t.name)}</a> ${ratingLabel(t.id)}${t.city?` <span class="muted">from ${esc(t.city)}</span>`:""}${schoolTag(t)}</div>
-      <div class="meta"><span>${esc(c.subject)}</span><span>Taught in ${esc(c.lang)}</span><span>${ageLabel(c.ages)}</span><span>${c.level}</span><span>${c.mins} min</span></div>
+      <div class="meta"><span>${modeLabel(c)}</span><span>${esc(c.subject)}</span><span>Taught in ${esc(c.lang)}</span><span>${ageLabel(c.ages)}</span><span>${c.level}</span><span>${c.mins} min</span></div>
       <div class="next">${nx?`Next: <b>${fmtDay(nx.start)}, ${fmtTime(nx.start)}</b>`:"No open times in the next two weeks"}</div>
     </div>
     <div class="price">
@@ -677,6 +679,10 @@ function listings(){
       <label class="choice"><input type="radio" name="type" value="private" id="nc-private" checked onchange="$('#nc-capwrap').hidden=true"><span><b>Private lesson</b>One student at a time, one-to-one with you.</span></label>
       <label class="choice"><input type="radio" name="type" value="group" id="nc-group" onchange="$('#nc-capwrap').hidden=false"><span><b>Small group class</b>Several students together, up to a size you set.</span></label>
     </div></fieldset>
+    <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Where does it take place?</legend><div class="choices">
+      <label class="choice"><input type="radio" name="mode" value="online" id="nc-online" checked onchange="classModeFields(this.value)"><span><b>Online</b>Students join through a video link you provide.</span></label>
+      <label class="choice"><input type="radio" name="mode" value="in_person" id="nc-inperson" onchange="classModeFields(this.value)"><span><b>In person</b>Students come to a place. The city is public; the address is only for people who booked.</span></label>
+    </div></fieldset>
     <label class="field" style="grid-column:1/-1">Class title<input name="title" id="nc-title" required placeholder="e.g. Conversational French for beginners"></label>
     <label class="field">Subject<input name="subject" id="nc-subject" required></label>
     <label class="field">Teaching language<input name="lang" id="nc-lang" value="English" required></label>
@@ -690,10 +696,13 @@ function listings(){
     <label class="field">Start time (your time)<input name="time" id="nc-time" type="time" value="17:00" required></label>
     <label class="field">Lesson length (minutes)<input name="mins" id="nc-mins" type="number" min="15" step="5" value="45"></label>
     <p class="small muted" style="grid-column:1/-1;margin:0">You set times in your own time zone (${esc(TZ)}). Students see them converted to theirs.</p>
-    <label class="field" style="grid-column:1/-1">Lesson link, such as Zoom or Google Meet (optional; only people who booked can see it)<input name="link" id="nc-link" placeholder="https://"></label>
+    <label class="field" id="nc-linkwrap" style="grid-column:1/-1">Lesson link, such as Zoom or Google Meet (optional; only people who booked can see it)<input name="link" id="nc-link" placeholder="https://"></label>
+    <label class="field" id="nc-placewrap" hidden>City or area (public)<input name="place" id="nc-place" maxlength="120" placeholder="e.g. Lagos, Ikeja"></label>
+    <label class="field" id="nc-addrwrap" style="grid-column:1/-1" hidden>Address (optional; only people who booked can see it)<input name="address" id="nc-address" maxlength="400"></label>
     <button class="btn" style="grid-column:1/-1;justify-self:start">Publish class</button>
   </form>`;
 }
+function classModeFields(v){ $("#nc-linkwrap").hidden = v!=="online"; $("#nc-placewrap").hidden = $("#nc-addrwrap").hidden = v!=="in_person" }
 function addListing(f){
   const days=[...f.querySelectorAll('[name=day]:checked')].map(x=>+x.value);
   if(!days.length) return toast("Choose at least one day");
@@ -710,6 +719,7 @@ function help(){
     ["Are the teachers and classes real?","Teachers, classes and reviews marked Demo are samples that show how the platform works. Listings without a Demo tag belong to real teachers whose accounts have been approved, and can be booked with a free student or parent account. Online payment is not open yet, so nothing is charged."],
     ["What's the difference between a private lesson and a small group class?","A private lesson is one student, one-to-one with the teacher. A small group class has a maximum size the teacher sets, shown on each listing with the places left."],
     ["Who can book?","Students aged 13 and over book for themselves. Parents book for their children from a parent account and choose which child each lesson is for."],
+    ["Are classes online or in person?","Both. Each class says whether it is online or in person. Online classes are joined through the teacher's video link from My lessons. In-person classes show their city publicly, and the full address is shown only to people who have booked."],
     ["Can a school use SeastackSchool?","Yes. A school registers, uploads documents that show it is registered or licensed, and is reviewed before its page goes public. An approved school invites its own teachers and approves them, and their classes appear under the school's name. A school's page says its documents were reviewed by SeastackSchool; that is not the same as government accreditation."],
     ["How does the affiliate program work?","Affiliates share a personal link. Teachers, students and parents who sign up through it within 90 days count as that affiliate's referrals. Commission will be a share of what SeastackSchool collects from those accounts, and it starts when online payment opens. Affiliate accounts are reviewed before they are activated."],
     ["What does SeastackSchool record about my visit?","The page you opened, the website you came from, your country, whether you used a phone or a computer, and the time. This helps us see how people find the site. No cookies, names or IP addresses are stored for it."],
@@ -743,7 +753,7 @@ $("#tzname").textContent=TZ;
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=14"></script>
+<script src="accounts.js?v=15"></script>
 
 </body>
 </html>
