@@ -11,7 +11,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}};
 const CANCELLED = {};   // lesson dates a teacher has cancelled, keyed like BOOKED
 // Demo teachers and classes disappear by themselves once this many real teachers are listed.
 const DEMO_OFF_AT = 3;
@@ -113,12 +113,19 @@ async function loadMe(){
   if(A.school) await loadSchoolExtras();
   if(A.teacher && A.teacher.school_id){ const r = await sb.from("schools").select("id,name,status").eq("id",A.teacher.school_id).maybeSingle(); A.mySchool = r.data || null }
   A.tdocs = A.teacher ? await listDocs(A.user.id, "teacher-docs") : [];
+  A.notes = {};
+  if(A.teacher){ const nt = await sb.rpc("my_class_attendee_notes"); (nt.data||[]).forEach(x=>{ A.notes[x.booking_id]=x.note }) }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
 // A signed-in student or parent books as themselves; a parent's children come from their account.
 function syncLearner(){
   if(!A.learner) return;
+  // the time zone saved on the profile applies on any device, unless this device has its own choice
+  try{
+    const z=A.learner.timezone;
+    if(z && !localStorage.getItem("ss:tz")){ new Intl.DateTimeFormat("en",{timeZone:z}); TZ=z; document.querySelectorAll("select.tzpick").forEach(s=>{ s.value=z }) }
+  }catch(e){}
   S.role = A.learner.role==="parent" ? "parent" : "learner"; $("#role").value = S.role;
   if(A.learner.role==="parent") S.children = A.children.map(k=>({id:k.id,name:k.first_name,age:k.age}));
 }
@@ -371,7 +378,7 @@ function teacherBookings(){
     const list=groups[k], c=A.classes.find(x=>x.id===list[0].class_id), when=new Date(list[0].starts_at);
     return `<div class="box"><div class="results-head"><h3 style="margin:0">${esc(c.title)}</h3><span class="small muted">${fmtDay(when)}, ${fmtTime(when)} · ${list.length} of ${c.capacity} booked</span></div>
       ${A.links[c.id] || c.mode==="in_person"?"":`<p class="small" style="color:var(--rose);margin:0 0 6px">Add a lesson link for this class under My classes so students can join.</p>`}
-      ${list.map(b=>`<div class="lesson" style="margin:8px 0 0"><span>${esc(b.attendee_name)}</span><button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button></div>`).join("")}</div>`;
+      ${list.map(b=>`<div class="lesson" style="margin:8px 0 0"><span>${esc(b.attendee_name)}${A.notes[b.id]?`<div class="small muted">Note from the family: ${esc(A.notes[b.id])}</div>`:""}</span><button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button></div>`).join("")}</div>`;
   }).join("");
 }
 // Attendance: everyone counts as attended unless the teacher says otherwise. The family can dispute a
@@ -491,7 +498,8 @@ function adminLearners(){
     ${rows.length?`<div class="scroll"><table class="admin" style="min-width:720px"><thead><tr><th>Account</th><th>Type</th><th>Children</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
     ${rows.map(r=>`<tr>
       <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}</td>
-      <td>${r.role==="parent"?"Parent":"Student"}</td>
+      <td>${r.role==="parent"?"Parent":"Student"}<div class="small muted">${esc([r.city,r.country].filter(Boolean).join(", "))}</div>
+        ${r.goals || (r.languages||[]).length || r.timezone?`<details style="padding:6px 10px;margin-top:6px"><summary class="small">Profile</summary><p class="small" style="margin:6px 0">Languages: ${esc((r.languages||[]).join(", ")||"(none given)")}</p><p class="small" style="margin:6px 0">Wants to learn: ${esc(r.goals||"(nothing written)")}</p><p class="small" style="margin:6px 0">Time zone: ${esc((r.timezone||"(not set)").replace(/_/g," "))}</p></details>`:""}</td>
       <td>${r.role==="parent"?r.child_count:"–"}</td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
       <td><span class="tag ${r.status==="active"?"ok":"bad"}">${r.status==="active"?"Active":"Suspended"}</span>${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
@@ -544,11 +552,17 @@ function accountPage(){
     <div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
     ${L.status==="suspended"?`<div class="notice bad">This account is suspended. Contact support from the Help page.</div>`:""}
     <div class="cols"><div>
-      <form class="box" id="acctf" novalidate onsubmit="event.preventDefault();saveLearner(this)">
-        <h3>${parent?"Parent account":"Student account"}</h3>
-        <label class="field">Full name<input name="full_name" id="ac-name" maxlength="120" value="${esc(L.full_name)}"></label>
-        <p class="small muted" style="margin:10px 0">${parent?"You book lessons for your children from this account.":"You book lessons for yourself from this account."}</p>
-        <button class="btn sm">Save name</button>
+      <form class="box row" id="acctf" novalidate onsubmit="event.preventDefault();saveLearner(this)">
+        <h3 style="grid-column:1/-1;margin:0">${parent?"Parent profile":"Student profile"}</h3>
+        <label class="field" style="grid-column:1/-1">Full name<input name="full_name" id="ac-name" maxlength="120" value="${esc(L.full_name)}"></label>
+        <label class="field">Country<input name="country" id="ac-country" maxlength="80" value="${esc(L.country||"")}"></label>
+        <label class="field">City<input name="city" id="ac-city" maxlength="120" value="${esc(L.city||"")}"></label>
+        <label class="field" style="grid-column:1/-1">Your time zone (lesson times are shown in it)<select name="timezone" id="ac-tz">${(z=>tzList().concat(tzList().includes(z)?[]:[z]).map(o=>`<option value="${esc(o)}" ${o===z?"selected":""}>${esc(o.replace(/_/g," "))}</option>`).join(""))(L.timezone||TZ)}</select></label>
+        <label class="field" style="grid-column:1/-1">Languages you speak, separated by commas<input name="languages" id="ac-langs" value="${esc((L.languages||[]).join(", "))}" placeholder="English, French"></label>
+        <label class="field" style="grid-column:1/-1">${parent?"What you'd like your children to learn":"What you want to learn"}<textarea name="goals" id="ac-goals" rows="2" maxlength="1000">${esc(L.goals||"")}</textarea></label>
+        ${parent?"":`<label class="field" style="grid-column:1/-1">Anything your teachers should know (optional; shown only to teachers of the classes you book)<textarea name="note" id="ac-note" rows="2" maxlength="500">${esc(L.note_for_teachers||"")}</textarea></label>`}
+        <p class="small muted" style="grid-column:1/-1;margin:0">Your profile is private. ${parent?"You book lessons for your children from this account.":"You book lessons for yourself from this account."}</p>
+        <button class="btn sm" style="grid-column:1/-1;justify-self:start">Save profile</button>
       </form>
       ${parent?familyBox():""}${accountSettings()}
     </div><div>
@@ -558,8 +572,9 @@ function accountPage(){
 }
 function familyBox(){
   return `<div class="box"><h3>My children</h3>
-    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for.</p>
-    ${A.children.length?A.children.map(k=>`<div class="lesson"><span><b>${esc(k.first_name)}</b>, age ${k.age}</span><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
+    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for. A note is optional, and is shown only to the teachers of the classes you book for that child.</p>
+    ${A.children.length?A.children.map(k=>`<div class="lesson"><div style="flex:1;min-width:200px"><b>${esc(k.first_name)}</b>, age ${k.age}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="cnote-${k.id}" value="${esc(k.note||"")}" maxlength="300" placeholder="Note for teachers (optional)" aria-label="Note for teachers about ${esc(k.first_name)}" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveChildNote('${k.id}')">Save note</button></div></div><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
     <form class="row" id="childf" novalidate onsubmit="event.preventDefault();addChild(this)">
       <label class="field">Child's first name<input name="n" id="ch-name" maxlength="60"></label>
       <label class="field">Age<input name="a" id="ch-age" type="number" min="3" max="17"></label>
@@ -569,9 +584,16 @@ function familyBox(){
 async function saveLearner(f){
   const name=f.full_name.value.trim();
   if(!name) return toast("Enter your full name");
-  const r = await sb.from("learners").update({full_name:name}).eq("id",A.user.id).select().maybeSingle();
-  if(r.error || !r.data) return toast(r.error?.message || "Your name could not be saved");
-  A.learner=r.data; toast("Name saved"); render();
+  const row={full_name:name,country:f.country.value.trim(),city:f.city.value.trim(),timezone:f.timezone.value,
+    languages:f.languages.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),goals:f.goals.value.trim()};
+  if(f.note) row.note_for_teachers=f.note.value.trim();
+  const r = await sb.from("learners").update(row).eq("id",A.user.id).select().maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
+  A.learner=r.data;
+  // the saved time zone takes effect now, on this device too
+  try{ localStorage.removeItem("ss:tz") }catch(e){}
+  if(row.timezone){ TZ=row.timezone; document.querySelectorAll("select.tzpick").forEach(s=>{ s.value=TZ }) }
+  toast("Profile saved"); render();
 }
 async function addChild(f){
   const name=f.n.value.trim(), age=+f.a.value;
@@ -580,6 +602,22 @@ async function addChild(f){
   const r = await sb.from("children").insert({parent_id:A.user.id,first_name:name,age});
   if(r.error) return toast(/up to 10/.test(r.error.message) ? "A parent account can list up to 10 children" : /row-level security/i.test(r.error.message) ? "Your account can't add children right now" : r.error.message);
   await loadMe(); toast("Child added"); render();
+}
+async function saveChildNote(id){
+  const note=($("#cnote-"+id)?.value||"").trim();
+  const r = await sb.from("children").update({note}).eq("id",id).select("id").maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "The note could not be saved");
+  const k=A.children.find(c=>c.id===id); if(k) k.note=note;
+  toast(note?"Note saved":"Note removed");
+}
+async function saveAffiliate(f){
+  const name=f.full_name.value.trim(); let web=f.website.value.trim();
+  if(!name) return toast("Enter your full name");
+  if(web && !/^https?:\/\//i.test(web)) web="https://"+web;
+  if(web && !/^https?:\/\/\S+$/.test(web)) return toast("The website address doesn't look right");
+  const r = await sb.from("affiliates").update({full_name:name,country:f.country.value.trim(),website:web,pitch:f.pitch.value.trim()}).eq("id",A.user.id).select().maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
+  A.aff=r.data; toast("Profile saved"); render();
 }
 async function dropChild(id){
   if(A.removingChild!==id){ A.removingChild=id; render(); return }
@@ -862,9 +900,9 @@ function termsPage(){
 }
 function privacyPage(){
   return legalPage("Privacy Policy","3 October 2026",[
-    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (city, time zone, experience, languages, introduction), your classes, lesson links or addresses, and any identity documents you upload.","<b>Parents:</b> each child's first name and age. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send."]],
+    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (city, time zone, experience, languages, introduction), your classes, lesson links or addresses, and any identity documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send."]],
     ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
-    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name), not the family's email. A school sees the same for its teachers.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
+    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and any note you wrote for teachers. A teacher does not see your email or the rest of your profile. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
     ["Emails",["We email you to confirm your address, to reset your password, and about your bookings."]],
     ["How long we keep it",["We keep your information while your account exists. Documents stay until you remove them. To delete your account and its data, write to us from the Help page; some records may be kept where the law requires it."]],
@@ -1145,6 +1183,15 @@ function partnerPage(){
         <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="reflink" readonly value="${esc(link)}" aria-label="Your referral link" style="flex:1;min-width:220px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn sm" onclick="copyRef()">Copy link</button></div>
         <p class="small muted" style="margin:10px 0 0">Your code is <b>${esc(a.code)}</b>. Anyone who opens this link and signs up as a teacher, student or parent within ${d.settings.window_days} days counts as your referral. The first link a person opens is the one that counts. You can add <b>?ref=${esc(a.code)}</b> to the address of any page on the site.</p>
         <p class="small muted" style="margin:8px 0 0">Someone who becomes an affiliate through your link joins your second level.</p></div>
+      <form class="box row" id="afff" novalidate onsubmit="event.preventDefault();saveAffiliate(this)">
+        <h3 style="grid-column:1/-1;margin:0">Your profile</h3>
+        <label class="field">Full name<input name="full_name" id="af-name" maxlength="120" value="${esc(a.full_name)}"></label>
+        <label class="field">Country<input name="country" id="af-country" maxlength="80" value="${esc(a.country||"")}"></label>
+        <label class="field" style="grid-column:1/-1">Website or social page (optional)<input name="website" id="af-web" maxlength="300" value="${esc(a.website||"")}" placeholder="https://"></label>
+        <label class="field" style="grid-column:1/-1">How you tell people about SeastackSchool<textarea name="pitch" id="af-pitch" rows="2" maxlength="600">${esc(a.pitch||"")}</textarea></label>
+        <p class="small muted" style="grid-column:1/-1;margin:0">Only you and SeastackSchool see this.</p>
+        <button class="btn sm" style="grid-column:1/-1;justify-self:start">Save profile</button>
+      </form>
       <div class="box"><h3>Your referrals</h3>
         ${d.referrals.length?`<div class="scroll"><table style="min-width:360px"><thead><tr><th>Type</th><th>Signed up</th><th>Status</th></tr></thead><tbody>
         ${d.referrals.map(r=>`<tr><td>${kinds[r.kind]||"Account"}</td><td>${r.joined_at?new Date(r.joined_at).toLocaleDateString():""}</td><td><span class="tag ${r.active?"ok":"group"}">${r.active?"Active":"Signed up"}</span></td></tr>`).join("")}</tbody></table></div>`
@@ -1189,7 +1236,7 @@ function adminAffiliates(){
     ${list.map(r=>`<tr>
       <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}
         <div class="small muted">Code ${esc(r.code)}${r.recruited_by_code?` · brought in by ${esc(r.recruited_by_code)}`:""}</div></td>
-      <td class="small">${esc(r.pitch||"(nothing written)")}</td>
+      <td class="small">${esc(r.pitch||"(nothing written)")}${r.country?`<div class="muted" style="margin-top:4px">${esc(r.country)}</div>`:""}${r.website?`<div style="margin-top:4px;overflow-wrap:anywhere"><a href="${esc(r.website)}" target="_blank" rel="noopener noreferrer">${esc(r.website)}</a></div>`:""}</td>
       <td>${r.clicks}</td><td>${r.signups}</td><td>${r.active}</td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
       <td>${pill(r.status)}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
