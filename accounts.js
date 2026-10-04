@@ -10,7 +10,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   aff:null, adash:null, arows:null, afilter:"pending",
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
-  reviews:[], rrows:null};
+  reviews:[], rrows:null, mreviews:[]};
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -565,15 +565,15 @@ function adminReviews(){
   const rows=A.rrows||[];
   return `<div class="wrap page">
     ${adminHead()}
-    <p class="muted">Ratings left by students and parents who have had a lesson with the teacher. Hide a review to remove it from the teacher's page and rating; you can show it again at any time.</p>
+    <p class="muted">Ratings left by students and parents who have had a lesson with the teacher. Hide a review to remove it from the teacher's page and rating; you can show it again at any time. A school can also hide or show reviews of its own teachers, but once you decide on a review, your decision is final. Teachers cannot change their own ratings.</p>
     ${rows.length?`<div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Teacher</th><th>Rating</th><th>Review</th><th>From</th><th>Date</th><th>Action</th></tr></thead><tbody>
     ${rows.map(r=>`<tr>
-      <td><b>${esc(r.teacher_name||"(no name)")}</b></td>
+      <td><b>${esc(r.teacher_name||"(no name)")}</b>${r.school_name?`<div class="small muted">${esc(r.school_name)}</div>`:""}</td>
       <td><span class="stars">${starStr(r.stars)}</span></td>
       <td class="small" style="max-width:320px">${esc(r.body||"(no text)")}</td>
       <td class="small">${esc(r.author)}<div>${esc(r.learner_email)}</div></td>
       <td class="small">${new Date(r.updated_at).toLocaleDateString()}</td>
-      <td>${r.hidden?`<span class="tag bad">Hidden</span><div class="acts"><button class="btn sm" onclick="setReviewHidden('${r.id}',false)">Show again</button></div>`:`<button class="btn sm ghost" onclick="setReviewHidden('${r.id}',true)">Hide</button>`}</td>
+      <td>${r.hidden?`<span class="tag bad">Hidden</span>${r.changed_by_kind==="school"?`<div class="small muted">by the school</div>`:r.changed_by_kind==="admin"?`<div class="small muted">by you</div>`:""}<div class="acts"><button class="btn sm" onclick="setReviewHidden('${r.id}',false)">Show again</button></div>`:`<button class="btn sm ghost" onclick="setReviewHidden('${r.id}',true)">Hide</button>`}</td>
     </tr>`).join("")}</tbody></table></div>`
     :`<div class="empty">No reviews yet. They appear here once students and parents rate a teacher after a lesson.</div>`}
   </div>`;
@@ -603,7 +603,13 @@ async function loadSchoolExtras(){
   A.members = m.data || [];
   const ids = A.members.map(x=>x.id);
   A.mclasses = ids.length ? ((await sb.from("classes").select("*").in("teacher_id", ids)).data || []) : [];
+  A.mreviews = ids.length ? ((await sb.from("reviews").select("*").in("teacher_id", ids).order("updated_at",{ascending:false})).data || []) : [];
   A.docs = await listDocs(A.user.id);
+}
+async function schoolReviewAction(id, hidden){
+  const r = await sb.rpc("school_set_review_hidden",{p_review_id:id,p_hidden:hidden});
+  if(r.error) return toast(r.error.message);
+  await loadSchoolExtras(); await loadPublic(); toast(hidden?"Review hidden":"Review shown again"); render();
 }
 function schoolDash(){
   if(!sb) return `<div class="wrap page"><h2>My school</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
@@ -648,6 +654,12 @@ function schoolDash(){
       <div class="box"><h3>Upcoming bookings</h3>
         ${up.length?up.map(b=>{ const c=A.mclasses.find(x=>x.id===b.class_id), t=A.members.find(x=>x.id===c.teacher_id), w=new Date(b.starts_at); return `<div class="lesson"><div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(t?t.full_name:"")} · for ${esc(b.attendee_name)}</div></div></div>` }).join("")
         :`<p class="muted" style="margin:0">No upcoming bookings in your teachers' classes yet.</p>`}</div>
+      <div class="box"><h3>Ratings of your teachers</h3>
+        <p class="muted small">Only families who have finished a lesson can rate a teacher. As the school's admin you can hide a rating or show it again; teachers cannot. SeastackSchool can overrule your choice, and then it is final.</p>
+        ${A.mreviews.length?A.mreviews.map(v=>{ const t=A.members.find(x=>x.id===v.teacher_id); return `<div class="lesson"><div><span class="stars">${starStr(v.stars)}</span> <b>${esc(t?t.full_name:"")}</b>${v.hidden?` <span class="tag bad">Not shown</span>`:""}
+          ${v.body?`<div class="small" style="margin-top:4px">${esc(v.body)}</div>`:""}<div class="small muted">${esc(v.author)} · ${new Date(v.updated_at).toLocaleDateString()}</div></div>
+          ${v.admin_locked?`<span class="small muted">Decided by SeastackSchool</span>`:`<button class="btn ghost sm" onclick="schoolReviewAction('${v.id}',${!v.hidden})">${v.hidden?"Show again":"Hide"}</button>`}</div>` }).join("")
+        :`<p class="muted" style="margin:0">No ratings yet.</p>`}</div>
     </div></div>
   </div>`;
 }
