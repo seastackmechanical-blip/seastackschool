@@ -3,6 +3,11 @@
   // The GitHub Actions workflow builds the site into ./_site_cf and runs `wrangler deploy`.
   "name": "seastackschool",
   "compatibility_date": "2026-09-01",
+  // The public address. Cloudflare creates the DNS records for these itself.
+  "routes": [
+    { "pattern": "seastackschool.com", "custom_domain": true },
+    { "pattern": "www.seastackschool.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": "./_site_cf",
     "not_found_handling": "none"

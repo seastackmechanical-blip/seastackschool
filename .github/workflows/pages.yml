@@ -58,7 +58,7 @@ jobs:
       - name: Build for Cloudflare
         if: env.HAS_CLOUDFLARE == 'true'
         env:
-          SITE_URL: ${{ vars.CF_SITE_URL || 'https://seastackschool.workers.dev/' }}
+          SITE_URL: ${{ vars.CF_SITE_URL || 'https://seastackschool.com/' }}
           OUT_DIR: _site_cf
         run: node scripts/build-pages.mjs
       - name: Deploy to Cloudflare
