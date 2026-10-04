@@ -503,12 +503,13 @@ function profile(id){
       <div class="avatar lg" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
       <div><h2 style="margin:0">${esc(t.name)}</h2>
         ${t.real||t.id==="me"?"":`<div class="small muted" style="margin:4px 0">${DEMO} Sample profile that shows how a teacher page looks.</div>`}
-        <div class="muted">${[t.city?"Teaching from "+esc(t.city):"", t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}${schoolTag(t)}</div>${trustLine(t)}
+        ${t.headline?`<div><b>${esc(t.headline)}</b></div>`:""}
+        <div class="muted">${[(w=>w?"Teaching from "+esc(w):"")([t.city,t.country].filter(Boolean).join(", ")), t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}${schoolTag(t)}</div>${trustLine(t)}
         <div>${rv.length?`<span class="stars">${starStr(rating(id))}</span> ${rating(id).toFixed(1)} from ${rv.length} reviews`:"New teacher, no reviews yet"}</div></div>
     </div>
     <div class="cols">
       <div>
-        <div class="box"><h3>About me</h3><p>${esc(t.intro)}</p><h3>Experience</h3><p>${esc(t.exp)}</p>
+        <div class="box"><h3>About me</h3><p>${esc(t.intro)}</p><h3>Experience</h3><p>${esc(t.exp)}</p>${teacherMore(t)}
           <h3>Teaching languages</h3><div class="chips">${t.langs.map(l=>`<span class="chip">${esc(l)}</span>`).join("")}</div></div>
         <h3>Classes</h3><div class="list">${allClasses().filter(c=>c.t===id).map(card).join("")}</div>
       </div>
@@ -778,7 +779,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=20"></script>
+<script src="accounts.js?v=21"></script>
 
 </body>
 </html>

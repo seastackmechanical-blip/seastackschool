@@ -11,7 +11,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null};
 const CANCELLED = {};   // lesson dates a teacher has cancelled, keyed like BOOKED
 // Demo teachers and classes disappear by themselves once this many real teachers are listed.
 const DEMO_OFF_AT = 3;
@@ -21,6 +21,25 @@ const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
 /* ---------- helpers ---------- */
+// A teacher's listed qualifications: [{title, issuer, year}]
+function qualList(q){ return (Array.isArray(q)?q:[]).filter(x=>x && x.title).map(x=>({title:String(x.title),issuer:String(x.issuer||""),year:String(x.year||"")})) }
+function qualLine(x){ return `<b>${esc(x.title)}</b>${x.issuer?", "+esc(x.issuer):""}${x.year?" ("+esc(x.year)+")":""}` }
+// The part of a teacher's public profile that says what they are qualified to teach.
+function teacherMore(t){
+  if(!t || !t.real) return "";
+  const q=t.quals||[];
+  return `${(t.subj||[]).length?`<h3>Subjects</h3><div class="chips">${t.subj.map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>`:""}
+    ${t.edu?`<h3>Education</h3><p style="white-space:pre-line">${esc(t.edu)}</p>`:""}
+    ${q.length?`<h3>Qualifications and certificates</h3><ul style="margin:0 0 8px;padding-left:20px">${q.map(x=>`<li>${qualLine(x)}</li>`).join("")}</ul>`:""}
+    ${q.length?`<p class="small muted" style="margin:0 0 12px">SeastackSchool has seen the document for each qualification listed here.</p>`:""}`;
+}
+// What a teacher sees about a person booked into their own class.
+function attendeeCard(b){
+  const n=A.notes[b.id]; if(!n) return "";
+  const bits=[n.is_child && n.booked_by?"Booked by parent: "+esc(n.booked_by):"", n.level?(n.is_child?"School grade: ":"Level: ")+esc(n.level):"", n.country?"Country: "+esc(n.country):"",
+    (n.languages||[]).length?"Speaks: "+esc(n.languages.join(", ")):"", n.goals?"Wants to learn: "+esc(n.goals):"", n.about?"About: "+esc(n.about):"", n.note?"Note for you: "+esc(n.note):""].filter(Boolean);
+  return bits.map(x=>`<div class="small muted" style="margin-top:2px">${x}</div>`).join("");
+}
 function ratingLabel(tid){ return reviewsFor(tid).length ? `<span class="stars">★</span> ${rating(tid).toFixed(1)}` : `<span class="muted">New</span>` }
 function tzOffset(tz){
   try{ const d=new Date(); return Math.round((new Date(d.toLocaleString("en-US",{timeZone:tz})) - new Date(d.toLocaleString("en-US",{timeZone:"UTC"})))/9e5)/4 }
@@ -78,9 +97,12 @@ async function loadPublic(){
   for(const k in CANCELLED) delete CANCELLED[k];
   (cx.data||[]).forEach(x=>{ CANCELLED[x.class_id+"@"+Date.parse(x.starts_at)] = true });
   for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
+  // only qualifications the admin has verified against a document are public
+  const qv = await sb.from("teacher_qualifications").select("id,teacher_id,title,issuer,year,verified_at").not("verified_at","is",null).order("created_at");
+  const QV = {}; (qv.data||[]).forEach(q=>{ (QV[q.teacher_id] = QV[q.teacher_id] || []).push(q) });
   const ok = new Set();
   t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,checked:!!x.identity_checked_at,color:"#C9D6F2",
-    years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience}) });
+    years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience,headline:x.headline||"",country:x.country||"",edu:x.education||"",subj:x.subjects||[],quals:qualList(QV[x.id])}) });
   c.data.filter(x=>ok.has(x.teacher_id)).forEach(x=>CLASSES.push(toClass(x)));
   if(t.data.length >= DEMO_OFF_AT && TEACHERS.some(x=>!x.real)){
     for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(!arr[i].real) arr.splice(i,1);
@@ -113,8 +135,10 @@ async function loadMe(){
   if(A.school) await loadSchoolExtras();
   if(A.teacher && A.teacher.school_id){ const r = await sb.from("schools").select("id,name,status").eq("id",A.teacher.school_id).maybeSingle(); A.mySchool = r.data || null }
   A.tdocs = A.teacher ? await listDocs(A.user.id, "teacher-docs") : [];
+  A.quals = [];
+  if(A.teacher){ const q = await sb.from("teacher_qualifications").select("*").eq("teacher_id",A.user.id).order("created_at"); A.quals = q.data || [] }
   A.notes = {};
-  if(A.teacher){ const nt = await sb.rpc("my_class_attendee_notes"); (nt.data||[]).forEach(x=>{ A.notes[x.booking_id]=x.note }) }
+  if(A.teacher){ const nt = await sb.rpc("my_class_attendees"); (nt.data||[]).forEach(x=>{ A.notes[x.booking_id]=x }) }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -132,6 +156,7 @@ function syncLearner(){
 async function loadAdmin(){
   const [r,l,b,f] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings"), sb.rpc("admin_list_affiliates")]);
   const sr = await sb.rpc("admin_list_schools"); if(!sr.error) A.srows = sr.data;
+  const aq = await sb.from("teacher_qualifications").select("*").order("created_at"); A.aquals = aq.data || [];
   const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
   const at = await sb.rpc("admin_attention"); if(!at.error) A.attn = at.data;
   const ib = await sb.rpc("admin_inbox"); if(!ib.error) A.inbox = ib.data;
@@ -242,7 +267,7 @@ studio = function(){
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?profileForm()+teacherDocsBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?profileForm()+teacherQualsBox()+teacherDocsBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
@@ -257,18 +282,25 @@ function profileForm(){
   const t=A.teacher, tz = t.timezone==="UTC" && !t.full_name.trim() ? BROWSER_TZ : t.timezone, zones=tzList();
   return `<form class="box row" id="proff" onsubmit="event.preventDefault();saveProfile(this)">
     <label class="field">Full name<input name="full_name" id="pf-name" required maxlength="120" value="${esc(t.full_name)}"></label>
+    <label class="field" style="grid-column:1/-1">Headline: one line that says what you teach<input name="headline" id="pf-headline" maxlength="140" value="${esc(t.headline||"")}" placeholder="e.g. Certified maths teacher for ages 10 to 16"></label>
     <label class="field">City<input name="city" id="pf-city" maxlength="120" value="${esc(t.city)}" placeholder="e.g. Vancouver"></label>
+    <label class="field">Country<input name="country" id="pf-country" maxlength="80" value="${esc(t.country||"")}" placeholder="e.g. Canada"></label>
     <label class="field">Your time zone<select name="timezone" id="pf-tz">${(zones.includes(tz)?zones:[tz].concat(zones)).map(z=>`<option ${z===tz?"selected":""}>${esc(z)}</option>`).join("")}</select></label>
     <label class="field">Years of teaching experience<input name="years" id="pf-years" type="number" min="0" max="80" value="${t.years_experience}"></label>
     <label class="field" style="grid-column:1/-1">Teaching languages, separated by commas<input name="languages" id="pf-langs" value="${esc((t.languages||[]).join(", "))}" placeholder="English, French"></label>
     <label class="field" style="grid-column:1/-1">Introduction (students read this first)<textarea name="intro" id="pf-intro" rows="3" maxlength="2000">${esc(t.intro)}</textarea></label>
-    <label class="field" style="grid-column:1/-1">Experience and qualifications<textarea name="experience" id="pf-exp" rows="3" maxlength="2000">${esc(t.experience)}</textarea></label>
+    <label class="field" style="grid-column:1/-1">Subjects you teach, separated by commas<input name="subjects" id="pf-subjects" value="${esc((t.subjects||[]).join(", "))}" placeholder="Maths, Physics"></label>
+    <label class="field" style="grid-column:1/-1">Teaching experience (where and whom you have taught)<textarea name="experience" id="pf-exp" rows="3" maxlength="2000">${esc(t.experience)}</textarea></label>
+    <label class="field" style="grid-column:1/-1">Education (where you studied and what)<textarea name="education" id="pf-edu" rows="2" maxlength="1500">${esc(t.education||"")}</textarea></label>
+    <p class="small muted" style="grid-column:1/-1;margin:0">Degrees, certificates and licences are added in the Qualifications box below, each with its own document.</p>
     <button class="btn" style="grid-column:1/-1;justify-self:start">Save profile</button>
   </form>`;
 }
 async function saveProfile(f){
   const row={full_name:f.full_name.value.trim(),city:f.city.value.trim(),timezone:f.timezone.value,years_experience:Math.max(0,Math.min(80,+f.years.value||0)),
-    languages:f.languages.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),intro:f.intro.value.trim(),experience:f.experience.value.trim()};
+    languages:f.languages.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),intro:f.intro.value.trim(),experience:f.experience.value.trim(),
+    headline:f.headline.value.trim(),country:f.country.value.trim(),education:f.education.value.trim(),
+    subjects:f.subjects.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12)};
   const r = await sb.from("teachers").update(row).eq("id",A.user.id).select().maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
   A.teacher=r.data; await loadPublic(); toast("Profile saved"); render();
@@ -378,7 +410,7 @@ function teacherBookings(){
     const list=groups[k], c=A.classes.find(x=>x.id===list[0].class_id), when=new Date(list[0].starts_at);
     return `<div class="box"><div class="results-head"><h3 style="margin:0">${esc(c.title)}</h3><span class="small muted">${fmtDay(when)}, ${fmtTime(when)} · ${list.length} of ${c.capacity} booked</span></div>
       ${A.links[c.id] || c.mode==="in_person"?"":`<p class="small" style="color:var(--rose);margin:0 0 6px">Add a lesson link for this class under My classes so students can join.</p>`}
-      ${list.map(b=>`<div class="lesson" style="margin:8px 0 0"><span>${esc(b.attendee_name)}${A.notes[b.id]?`<div class="small muted">Note from the family: ${esc(A.notes[b.id])}</div>`:""}</span><button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button></div>`).join("")}</div>`;
+      ${list.map(b=>`<div class="lesson" style="margin:8px 0 0"><div style="flex:1;min-width:200px"><b>${esc(b.attendee_name)}</b>${attendeeCard(b)}</div><button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button></div>`).join("")}</div>`;
   }).join("");
 }
 // Attendance: everyone counts as attended unless the teacher says otherwise. The family can dispute a
@@ -456,17 +488,21 @@ function adminPage(){
   const act=(id,s,l,ghost)=>`<button class="btn sm ${ghost?"ghost":""}" onclick="setStatus('${id}','${s}')">${l}</button>`;
   return `<div class="wrap page">
     ${adminHead()}
+    ${qualsWaiting()}
     <p class="muted">Approve a teacher to make their profile and classes public. Suspend one to hide them again. Every change is recorded with your account and the time.</p>
     <div class="chips" style="margin-bottom:14px">${chip("pending","Waiting for approval ("+n("pending")+")")}${chip("approved","Approved ("+n("approved")+")")}${chip("suspended","Suspended ("+n("suspended")+")")}${chip("all","All ("+rows.length+")")}</div>
     ${list.length?`<div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Teacher</th><th>Profile</th><th>Classes and identity</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
     ${list.map(r=>`<tr>
       <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}</td>
       <td class="small">${esc([r.city,r.timezone].filter(Boolean).join(" · "))}<br>${r.years_experience} years · ${esc((r.languages||[]).join(", ")||"no languages yet")}
-        <details style="margin-top:6px;padding:6px 10px"><summary class="small">Read profile</summary><p style="margin:6px 0"><b>Introduction</b><br>${esc(r.intro||"(empty)")}</p><p style="margin:6px 0"><b>Experience</b><br>${esc(r.experience||"(empty)")}</p></details></td>
+        <details style="margin-top:6px;padding:6px 10px"><summary class="small">Read profile</summary><p style="margin:6px 0"><b>Introduction</b><br>${esc(r.intro||"(empty)")}</p><p style="margin:6px 0"><b>Experience</b><br>${esc(r.experience||"(empty)")}</p>
+          <p style="margin:6px 0"><b>Headline</b><br>${esc(r.headline||"(empty)")}</p><p style="margin:6px 0"><b>Country</b><br>${esc(r.country||"(empty)")}</p><p style="margin:6px 0"><b>Subjects</b><br>${esc((r.subjects||[]).join(", ")||"(empty)")}</p>
+          <p style="margin:6px 0"><b>Education</b><br>${esc(r.education||"(empty)")}</p></details></td>
       <td>${r.class_count} ${r.class_count===1?"class":"classes"}${r.school_name?`<div class="small muted">School: ${esc(r.school_name)}</div>`:""}
         <div class="small" style="margin-top:6px">${r.identity_checked_at?`<span class="tag ok">Identity checked</span> ${new Date(r.identity_checked_at).toLocaleDateString()}`:`<span class="tag group">Identity not checked</span>`}</div>
         <div class="small" style="margin-top:6px">${A.tdocsAdmin[r.id]?(A.tdocsAdmin[r.id].length?A.tdocsAdmin[r.id].map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showTeacherDocs('${r.id}')">Show documents</button>`}</div>
-        <div class="acts"><button class="btn sm ghost" onclick="setIdentity('${r.id}',${!r.identity_checked_at})">${r.identity_checked_at?"Remove identity check":"Mark identity checked"}</button></div></td>
+        <div class="acts"><button class="btn sm ghost" onclick="setIdentity('${r.id}',${!r.identity_checked_at})">${r.identity_checked_at?"Remove identity check":"Mark identity checked"}</button></div>
+        ${adminQuals(r.id)}</td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
       <td>${pill(r.status)}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
       <td><input id="note-${r.id}" aria-label="Note for ${esc(r.full_name)}" placeholder="Note (optional)" maxlength="1000">
@@ -499,7 +535,7 @@ function adminLearners(){
     ${rows.map(r=>`<tr>
       <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}</td>
       <td>${r.role==="parent"?"Parent":"Student"}<div class="small muted">${esc([r.city,r.country].filter(Boolean).join(", "))}</div>
-        ${r.goals || (r.languages||[]).length || r.timezone?`<details style="padding:6px 10px;margin-top:6px"><summary class="small">Profile</summary><p class="small" style="margin:6px 0">Languages: ${esc((r.languages||[]).join(", ")||"(none given)")}</p><p class="small" style="margin:6px 0">Wants to learn: ${esc(r.goals||"(nothing written)")}</p><p class="small" style="margin:6px 0">Time zone: ${esc((r.timezone||"(not set)").replace(/_/g," "))}</p></details>`:""}</td>
+        ${r.goals || (r.languages||[]).length || r.timezone || r.education_level || r.about?`<details style="padding:6px 10px;margin-top:6px"><summary class="small">Profile</summary>${r.education_level?`<p class="small" style="margin:6px 0">Level: ${esc(r.education_level)}</p>`:""}${r.about?`<p class="small" style="margin:6px 0">About: ${esc(r.about)}</p>`:""}<p class="small" style="margin:6px 0">Languages: ${esc((r.languages||[]).join(", ")||"(none given)")}</p><p class="small" style="margin:6px 0">Wants to learn: ${esc(r.goals||"(nothing written)")}</p><p class="small" style="margin:6px 0">Time zone: ${esc((r.timezone||"(not set)").replace(/_/g," "))}</p></details>`:""}</td>
       <td>${r.role==="parent"?r.child_count:"–"}</td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
       <td><span class="tag ${r.status==="active"?"ok":"bad"}">${r.status==="active"?"Active":"Suspended"}</span>${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
@@ -560,8 +596,10 @@ function accountPage(){
         <label class="field" style="grid-column:1/-1">Your time zone (lesson times are shown in it)<select name="timezone" id="ac-tz">${(z=>tzList().concat(tzList().includes(z)?[]:[z]).map(o=>`<option value="${esc(o)}" ${o===z?"selected":""}>${esc(o.replace(/_/g," "))}</option>`).join(""))(L.timezone||TZ)}</select></label>
         <label class="field" style="grid-column:1/-1">Languages you speak, separated by commas<input name="languages" id="ac-langs" value="${esc((L.languages||[]).join(", "))}" placeholder="English, French"></label>
         <label class="field" style="grid-column:1/-1">${parent?"What you'd like your children to learn":"What you want to learn"}<textarea name="goals" id="ac-goals" rows="2" maxlength="1000">${esc(L.goals||"")}</textarea></label>
-        ${parent?"":`<label class="field" style="grid-column:1/-1">Anything your teachers should know (optional; shown only to teachers of the classes you book)<textarea name="note" id="ac-note" rows="2" maxlength="500">${esc(L.note_for_teachers||"")}</textarea></label>`}
-        <p class="small muted" style="grid-column:1/-1;margin:0">Your profile is private. ${parent?"You book lessons for your children from this account.":"You book lessons for yourself from this account."}</p>
+        ${parent?"":`<label class="field" style="grid-column:1/-1">Your level (school grade, college or university, working adult)<input name="education_level" id="ac-level" maxlength="120" value="${esc(L.education_level||"")}" placeholder="e.g. Grade 10, or university student"></label>
+        <label class="field" style="grid-column:1/-1">About you (what you study or do, and what you already know)<textarea name="about" id="ac-about" rows="2" maxlength="1000">${esc(L.about||"")}</textarea></label>
+        <label class="field" style="grid-column:1/-1">Anything else your teachers should know (optional)<textarea name="note" id="ac-note" rows="2" maxlength="500">${esc(L.note_for_teachers||"")}</textarea></label>`}
+        <p class="small muted" style="grid-column:1/-1;margin:0">Your profile is not public. ${parent?"The teachers of the classes you book see your name, country, languages and what you'd like your children to learn, with each child's first name, school grade and note. They never see your email or city.":"The teachers of the classes you book see your name, level, country, languages, what you want to learn, what you wrote about yourself and your note. They never see your email or city."}</p>
         <button class="btn sm" style="grid-column:1/-1;justify-self:start">Save profile</button>
       </form>
       ${parent?familyBox():""}${accountSettings()}
@@ -572,12 +610,13 @@ function accountPage(){
 }
 function familyBox(){
   return `<div class="box"><h3>My children</h3>
-    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for. A note is optional, and is shown only to the teachers of the classes you book for that child.</p>
+    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for. The school grade and note are optional, and are shown only to the teachers of the classes you book for that child.</p>
     ${A.children.length?A.children.map(k=>`<div class="lesson"><div style="flex:1;min-width:200px"><b>${esc(k.first_name)}</b>, age ${k.age}
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="cnote-${k.id}" value="${esc(k.note||"")}" maxlength="300" placeholder="Note for teachers (optional)" aria-label="Note for teachers about ${esc(k.first_name)}" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveChildNote('${k.id}')">Save note</button></div></div><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="cgrade-${k.id}" value="${esc(k.grade||"")}" maxlength="80" placeholder="School grade or level" aria-label="School grade or level of ${esc(k.first_name)}" style="flex:0 1 170px;min-width:130px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><input id="cnote-${k.id}" value="${esc(k.note||"")}" maxlength="300" placeholder="Note for teachers (optional)" aria-label="Note for teachers about ${esc(k.first_name)}" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveChildNote('${k.id}')">Save</button></div></div><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
     <form class="row" id="childf" novalidate onsubmit="event.preventDefault();addChild(this)">
       <label class="field">Child's first name<input name="n" id="ch-name" maxlength="60"></label>
       <label class="field">Age<input name="a" id="ch-age" type="number" min="3" max="17"></label>
+      <label class="field">School grade or level (optional)<input name="g" id="ch-grade" maxlength="80" placeholder="e.g. Grade 4"></label>
       <button class="btn sm" style="align-self:end">Add child</button>
     </form></div>`;
 }
@@ -587,6 +626,7 @@ async function saveLearner(f){
   const row={full_name:name,country:f.country.value.trim(),city:f.city.value.trim(),timezone:f.timezone.value,
     languages:f.languages.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),goals:f.goals.value.trim()};
   if(f.note) row.note_for_teachers=f.note.value.trim();
+  if(f.education_level){ row.education_level=f.education_level.value.trim(); row.about=f.about.value.trim() }
   const r = await sb.from("learners").update(row).eq("id",A.user.id).select().maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
   A.learner=r.data;
@@ -599,16 +639,16 @@ async function addChild(f){
   const name=f.n.value.trim(), age=+f.a.value;
   if(!name) return toast("Enter your child's first name");
   if(!(age>=3 && age<=17)) return toast("Enter an age between 3 and 17");
-  const r = await sb.from("children").insert({parent_id:A.user.id,first_name:name,age});
+  const r = await sb.from("children").insert({parent_id:A.user.id,first_name:name,age,grade:f.g.value.trim()});
   if(r.error) return toast(/up to 10/.test(r.error.message) ? "A parent account can list up to 10 children" : /row-level security/i.test(r.error.message) ? "Your account can't add children right now" : r.error.message);
   await loadMe(); toast("Child added"); render();
 }
 async function saveChildNote(id){
-  const note=($("#cnote-"+id)?.value||"").trim();
-  const r = await sb.from("children").update({note}).eq("id",id).select("id").maybeSingle();
-  if(r.error || !r.data) return toast(r.error?.message || "The note could not be saved");
-  const k=A.children.find(c=>c.id===id); if(k) k.note=note;
-  toast(note?"Note saved":"Note removed");
+  const note=($("#cnote-"+id)?.value||"").trim(), grade=($("#cgrade-"+id)?.value||"").trim();
+  const r = await sb.from("children").update({note,grade}).eq("id",id).select("id").maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "The details could not be saved");
+  const k=A.children.find(c=>c.id===id); if(k){ k.note=note; k.grade=grade }
+  toast("Saved");
 }
 async function saveAffiliate(f){
   const name=f.full_name.value.trim(); let web=f.website.value.trim();
@@ -722,7 +762,8 @@ function teacherChecklist(){
   const t=A.teacher, cl=A.classes;
   const items=[
     [!!(t.full_name.trim() && t.intro.trim() && (t.languages||[]).length), "Fill in your profile: name, introduction and teaching languages", "profile", "Open My profile"],
-    [A.tdocs.length>0 || !!t.identity_checked_at, "Upload an identity document", "profile", "Open My profile"],
+    [A.quals.length>0 && A.quals.every(q=>q.doc_name), "Add your qualifications, with a photo of the document for each, so families know what you are qualified to teach", "profile", "Open My profile"],
+    [A.tdocs.some(idDoc) || !!t.identity_checked_at, "Upload an identity document", "profile", "Open My profile"],
     [cl.length>0, "Create your first class", "list", "Open My classes"],
     [cl.length>0 && cl.every(c=>c.mode==="in_person" ? !!A.addresses[c.id] : !!A.links[c.id]), "Add a lesson link (online) or address (in person) to every class", "list", "Open My classes"],
     [t.status==="approved", t.school_id ? "Be approved by your school" : "Be approved by SeastackSchool, which happens after we review your profile", null, ""]
@@ -769,20 +810,24 @@ async function deleteAccount(){
 
 /* ---------- trust and safety: identity documents, reports, the Help inbox, what needs the admin ---------- */
 function trustLine(t){
-  return t && t.real && t.checked ? `<div class="small" style="margin-top:4px"><span class="tag ok">Identity checked by SeastackSchool</span></div>` : "";
+  if(!t || !t.real) return "";
+  const nq=(t.quals||[]).length;
+  const tags=[t.checked?`<span class="tag ok">Identity checked by SeastackSchool</span>`:"", nq?`<span class="tag ok">${nq} verified ${nq===1?"qualification":"qualifications"}</span>`:""].filter(Boolean);
+  return tags.length ? `<div class="small" style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${tags.join("")}</div>` : "";
 }
+const idDoc = d => !/\/qual-[^/]*$/.test(d.path);   // identity files, as opposed to a qualification's document
 function teacherDocsBox(){
   const t=A.teacher;
   return `<div class="box"><h3>Identity documents</h3>
-    <p class="muted small">Upload a photo ID, and any teaching certificate you'd like us to see. Only you and SeastackSchool can open these; they are never shown to students or visitors. ${t.identity_checked_at?`<b>Your identity was checked on ${new Date(t.identity_checked_at).toLocaleDateString()}</b>, and your profile shows "Identity checked by SeastackSchool".`:"Once we have checked them, your profile shows \"Identity checked by SeastackSchool\"."}</p>
-    ${A.tdocs.length?A.tdocs.map((d,i)=>`<div class="lesson"><span style="overflow-wrap:anywhere">${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a>`:esc(d.name)}</span><button class="btn ghost sm" onclick="dropTDoc(${i})">${A.removingTDoc===d.path?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No documents uploaded yet.</div>`}
+    <p class="muted small">Upload a photo ID. Certificates go with each qualification in the box above. Only you and SeastackSchool can open these; they are never shown to students or visitors. ${t.identity_checked_at?`<b>Your identity was checked on ${new Date(t.identity_checked_at).toLocaleDateString()}</b>, and your profile shows "Identity checked by SeastackSchool".`:"Once we have checked them, your profile shows \"Identity checked by SeastackSchool\"."}</p>
+    ${A.tdocs.some(idDoc)?A.tdocs.map((d,i)=>!idDoc(d)?"":`<div class="lesson"><span style="overflow-wrap:anywhere">${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a>`:esc(d.name)}</span><button class="btn ghost sm" onclick="dropTDoc(${i})">${A.removingTDoc===d.path?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No documents uploaded yet.</div>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px"><input type="file" id="tdocfile" accept=".pdf,.jpg,.jpeg,.png" aria-label="Choose a document"><button class="btn sm" id="tdocbtn" onclick="uploadTDoc()">Upload</button></div>
     <p class="small muted" style="margin:8px 0 0">PDF, JPG or PNG, up to 10 MB each, up to 5 files.</p></div>`;
 }
 async function uploadTDoc(){
   const file=$("#tdocfile").files[0], btn=$("#tdocbtn");
   if(!file) return toast("Choose a file first");
-  if(A.tdocs.length>=5) return toast("You can upload up to 5 documents. Remove one first.");
+  if(A.tdocs.filter(idDoc).length>=5) return toast("You can upload up to 5 documents. Remove one first.");
   if(file.size>10*1024*1024) return toast("That file is larger than 10 MB");
   if(!["application/pdf","image/jpeg","image/png"].includes(file.type)) return toast("Upload a PDF, JPG or PNG file");
   btn.disabled=true; btn.textContent="Uploading…";
@@ -800,6 +845,78 @@ async function dropTDoc(i){
   A.tdocs = await listDocs(A.user.id, "teacher-docs"); toast("Document removed"); render();
 }
 async function showTeacherDocs(id){ A.tdocsAdmin[id] = await listDocs(id, "teacher-docs"); render() }
+/* ---------- qualifications: the public sees the title only; the admin verifies the document behind each one ---------- */
+const qualStatus = q => q.verified_at ? `<span class="tag ok">Verified</span>` : q.doc_name ? `<span class="tag group">Waiting for verification</span>` : `<span class="tag bad">Document needed</span>`;
+function teacherQualsBox(){
+  const inp=`padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)`;
+  return `<div class="box" id="qualbox"><h3>Qualifications</h3>
+    <p class="muted small">List each degree, teaching certificate or licence, and upload a clear photo or scan of the document for it. Students and parents see only the title, never the document. A qualification appears on your public profile after SeastackSchool has verified its document.</p>
+    ${A.quals.length?A.quals.map(q=>`<div class="lesson"><div style="flex:1;min-width:200px">${qualLine(q)} ${qualStatus(q)}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px"><input type="file" id="qfile-${q.id}" accept=".pdf,.jpg,.jpeg,.png" aria-label="Document for ${esc(q.title)}"><button class="btn ghost sm" id="qbtn-${q.id}" onclick="uploadQualDoc('${q.id}')">${q.doc_name?"Replace document":"Upload document"}</button></div>
+        ${q.verified_at?`<div class="small muted" style="margin-top:4px">Replacing the document sends it for verification again.</div>`:""}</div>
+      <button class="btn ghost sm" onclick="dropQual('${q.id}')">${A.removingQual===q.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No qualifications added yet.</div>`}
+    ${A.quals.length<8?`<form id="qualf" novalidate onsubmit="event.preventDefault();addQual(this)" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+      <input name="title" id="q-title" maxlength="140" placeholder="Qualification, e.g. Bachelor of Education" aria-label="Qualification title" style="flex:2;min-width:200px;${inp}">
+      <input name="issuer" id="q-issuer" maxlength="140" placeholder="Awarded by" aria-label="Awarded by" style="flex:2;min-width:160px;${inp}">
+      <input name="year" id="q-year" maxlength="4" inputmode="numeric" placeholder="Year" aria-label="Year" style="flex:0 1 90px;min-width:70px;${inp}">
+      <button class="btn sm">Add qualification</button></form>`:`<p class="small muted" style="margin:10px 0 0">You can list up to 8 qualifications.</p>`}
+    <p class="small muted" style="margin:8px 0 0">Documents: PDF, JPG or PNG, up to 10 MB each.</p></div>`;
+}
+async function reloadQuals(){
+  const q = await sb.from("teacher_qualifications").select("*").eq("teacher_id",A.user.id).order("created_at"); A.quals = q.data || [];
+  A.tdocs = await listDocs(A.user.id, "teacher-docs");
+}
+async function addQual(f){
+  const title=f.title.value.trim(), year=f.year.value.trim();
+  if(title.length<2) return toast("Enter the title of the qualification");
+  if(year && !/^\d{4}$/.test(year)) return toast("Enter the year as four digits, or leave it empty");
+  const r = await sb.from("teacher_qualifications").insert({teacher_id:A.user.id,title,issuer:f.issuer.value.trim(),year});
+  if(r.error) return toast(/up to 8/.test(r.error.message) ? "You can list up to 8 qualifications" : r.error.message);
+  await reloadQuals(); toast("Qualification added. Now upload its document."); render();
+}
+async function uploadQualDoc(id){
+  const q=A.quals.find(x=>x.id===id), file=$("#qfile-"+id)?.files[0], btn=$("#qbtn-"+id); if(!q) return;
+  if(!file) return toast("Choose the photo or scan of the document first");
+  if(file.size>10*1024*1024) return toast("That file is larger than 10 MB");
+  const ext={"application/pdf":"pdf","image/jpeg":"jpg","image/png":"png"}[file.type];
+  if(!ext) return toast("Upload a PDF, JPG or PNG file");
+  btn.disabled=true; btn.textContent="Uploading…";
+  const name="qual-"+id+"-"+Date.now()+"."+ext, store=sb.storage.from("teacher-docs");
+  const up = await store.upload(A.user.id+"/"+name, file, {contentType:file.type});
+  if(up.error){ toast(up.error.message); render(); return }
+  const r = await sb.from("teacher_qualifications").update({doc_name:name}).eq("id",id).select("id").maybeSingle();
+  if(r.error || !r.data){ await store.remove([A.user.id+"/"+name]); toast(r.error?.message || "The document could not be saved"); render(); return }
+  if(q.doc_name) await store.remove([A.user.id+"/"+q.doc_name]);
+  await reloadQuals(); toast("Document uploaded. SeastackSchool will verify it."); render();
+}
+async function dropQual(id){
+  const q=A.quals.find(x=>x.id===id); if(!q) return;
+  if(A.removingQual!==id){ A.removingQual=id; render(); return }
+  A.removingQual=null;
+  const r = await sb.from("teacher_qualifications").delete().eq("id",id);
+  if(r.error) return toast(r.error.message);
+  if(q.doc_name) await sb.storage.from("teacher-docs").remove([A.user.id+"/"+q.doc_name]);
+  await reloadQuals(); await loadPublic(); toast("Qualification removed"); render();
+}
+// Admin: each qualification with its document and a verify button.
+function adminQuals(tid){
+  const list=(A.aquals||[]).filter(q=>q.teacher_id===tid), docs=A.tdocsAdmin[tid];
+  if(!list.length) return `<div class="small muted" style="margin-top:8px">No qualifications listed</div>`;
+  return `<div class="small" style="margin-top:8px"><b>Qualifications</b>${list.map(q=>{ const d=docs && q.doc_name ? docs.find(x=>x.path.endsWith("/"+q.doc_name)) : null;
+    return `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">${qualLine(q)}<div style="margin-top:3px">${qualStatus(q)}${q.verified_at?" "+new Date(q.verified_at).toLocaleDateString():""}</div>
+      <div class="acts">${!q.doc_name?"":d&&d.url?`<a class="btn sm ghost" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Open document</a>`:`<button class="btn sm ghost" onclick="showTeacherDocs('${tid}')">Show document</button>`}
+        ${q.verified_at?`<button class="btn sm ghost" onclick="verifyQual('${q.id}',false)">Remove verification</button>`:q.doc_name?`<button class="btn sm" onclick="verifyQual('${q.id}',true)">Verify</button>`:""}</div></div>` }).join("")}</div>`;
+}
+function qualsWaiting(){
+  const w=(A.aquals||[]).filter(q=>q.doc_name && !q.verified_at); if(!w.length) return "";
+  const names=[...new Set(w.map(q=>((A.rows||[]).find(r=>r.id===q.teacher_id)||{}).full_name||"(no name yet)"))];
+  return `<div class="notice" style="margin:0 0 14px">${w.length} ${w.length===1?"qualification is":"qualifications are"} waiting for you to verify the document: ${esc(names.join(", "))}. Open the document, compare it with the title, then choose Verify.</div>`;
+}
+async function verifyQual(id, yes){
+  const r = await sb.rpc("admin_verify_qualification",{p_id:id,p_verified:yes});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); await loadPublic(); toast(yes?"Qualification verified. It now shows on the teacher's profile.":"Verification removed. The qualification is no longer public."); render();
+}
 async function setIdentity(id, checked){
   const r = await sb.rpc("admin_set_identity_checked",{p_teacher_id:id,p_checked:checked});
   if(r.error) return toast(r.error.message);
@@ -887,7 +1004,7 @@ function termsPage(){
   return legalPage("Terms of Use","3 October 2026",[
     ["What SeastackSchool is",["SeastackSchool is a website where independent teachers and schools list lessons, online or in person, and students and parents book them. Teachers and schools are not employees of SeastackSchool. Each teacher or school is responsible for the lessons they give."]],
     ["Accounts",["You must give accurate information and keep your password to yourself. One person or one school per account.","Student accounts are for people aged 13 or over. Children under 13 do not have accounts: a parent or guardian books for them from a parent account and is responsible for those bookings."]],
-    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee."]],
+    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement."]],
     ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons."]],
     ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
     ["Prices and payment",["Prices are set by teachers and shown in US dollars. Online payment is not open yet: booking on SeastackSchool charges nothing. When payment opens, these terms will be updated first."]],
@@ -900,9 +1017,9 @@ function termsPage(){
 }
 function privacyPage(){
   return legalPage("Privacy Policy","3 October 2026",[
-    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (city, time zone, experience, languages, introduction), your classes, lesson links or addresses, and any identity documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send."]],
+    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send."]],
     ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
-    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and any note you wrote for teachers. A teacher does not see your email or the rest of your profile. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
+    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
     ["Emails",["We email you to confirm your address, to reset your password, and about your bookings."]],
     ["How long we keep it",["We keep your information while your account exists. Documents stay until you remove them. To delete your account and its data, write to us from the Help page; some records may be kept where the law requires it."]],
@@ -1008,6 +1125,9 @@ function schoolDash(){
         <label class="field" style="grid-column:1/-1">School name<input name="name" id="sc-name" maxlength="140" value="${esc(s.name)}"></label>
         <label class="field">Country<input name="country" id="sc-country" maxlength="80" value="${esc(s.country)}"></label>
         <label class="field">City<input name="city" id="sc-city" maxlength="120" value="${esc(s.city)}"></label>
+        <label class="field">Kind of school<input name="school_type" id="sc-type" maxlength="80" value="${esc(s.school_type||"")}" placeholder="e.g. Language school, primary school"></label>
+        <label class="field">Year founded<input name="founded_year" id="sc-year" type="number" min="1000" max="2100" value="${s.founded_year||""}"></label>
+        <label class="field" style="grid-column:1/-1">Registration and accreditation (who registered, licensed or accredited the school; shown on your public page)<textarea name="accreditation" id="sc-accr" rows="2" maxlength="1000">${esc(s.accreditation||"")}</textarea></label>
         <label class="field" style="grid-column:1/-1">Website (optional)<input name="website" id="sc-web" maxlength="300" value="${esc(s.website)}" placeholder="https://"></label>
         <label class="field" style="grid-column:1/-1">About the school (shown on your public page)<textarea name="about" id="sc-about" rows="4" maxlength="3000">${esc(s.about)}</textarea></label>
         <label class="field" style="grid-column:1/-1">Contact person (not public)<input name="contact_name" id="sc-contact" maxlength="120" value="${esc(p.contact_name)}"></label>
@@ -1045,7 +1165,9 @@ async function saveSchool(f){
   if(!name) return toast("Enter your school's name");
   if(web && !/^https?:\/\//i.test(web)) web="https://"+web;
   if(web && !/^https?:\/\/\S+$/.test(web)) return toast("The website address doesn't look right");
-  const a = await sb.from("schools").update({name,country:f.country.value.trim(),city:f.city.value.trim(),website:web,about:f.about.value.trim()}).eq("id",A.user.id).select().maybeSingle();
+  const yr=+f.founded_year.value||null;
+  if(yr && !(yr>=1000 && yr<=new Date().getFullYear())) return toast("Check the year the school was founded");
+  const a = await sb.from("schools").update({name,country:f.country.value.trim(),city:f.city.value.trim(),website:web,about:f.about.value.trim(),school_type:f.school_type.value.trim(),founded_year:yr,accreditation:f.accreditation.value.trim()}).eq("id",A.user.id).select().maybeSingle();
   if(a.error || !a.data) return toast(a.error?.message || "Your school details could not be saved");
   const b = await sb.from("school_private").update({contact_name:f.contact_name.value.trim(),reviewer_note:f.reviewer_note.value.trim()}).eq("id",A.user.id).select().maybeSingle();
   if(b.error) return toast(b.error.message);
@@ -1117,13 +1239,15 @@ function schoolPage(id){
   return `<div class="wrap profile">
     <div class="profile-head"><div class="avatar lg" style="background:#eee9fb" aria-hidden="true">${esc(initials(s.name||"S"))}</div>
       <div><h2 style="margin:0">${esc(s.name)}</h2>
+        ${s.school_type||s.founded_year?`<div><b>${esc([s.school_type, s.founded_year?"founded "+s.founded_year:""].filter(Boolean).join(", "))}</b></div>`:""}
         <div class="muted">${esc([s.city,s.country].filter(Boolean).join(", "))}${s.website?` · <a href="${esc(s.website)}" target="_blank" rel="noopener noreferrer">Website</a>`:""}</div>
         <div class="small muted">Documents reviewed by SeastackSchool${s.reviewed_at?" on "+new Date(s.reviewed_at).toLocaleDateString():""}</div></div></div>
     <div class="cols"><div>
       ${s.about?`<div class="box"><h3>About the school</h3><p style="margin:0;white-space:pre-line">${esc(s.about)}</p></div>`:""}
+      ${s.accreditation?`<div class="box"><h3>Registration and accreditation</h3><p style="margin:0 0 8px;white-space:pre-line">${esc(s.accreditation)}</p><p class="small muted" style="margin:0">Stated by the school. SeastackSchool has reviewed the school's documents; that is not accreditation by any authority.</p></div>`:""}
       <h3>Classes</h3>${cs.length?`<div class="list">${cs.map(card).join("")}</div>`:`<div class="empty">No classes listed yet.</div>`}
     </div><div>
-      <div class="box"><h3>Teachers</h3>${ts.length?ts.map(t=>`<div class="review"><a href="#/teacher/${t.id}"><b>${esc(t.name)}</b></a><div class="small muted">${esc(t.langs.join(", "))}</div></div>`).join(""):`<p class="muted" style="margin:0">No teachers listed yet.</p>`}</div>
+      <div class="box"><h3>Teachers</h3>${ts.length?ts.map(t=>`<div class="review"><a href="#/teacher/${t.id}"><b>${esc(t.name)}</b></a>${t.headline?`<div class="small">${esc(t.headline)}</div>`:""}<div class="small muted">${esc(t.langs.join(", "))}</div></div>`).join(""):`<p class="muted" style="margin:0">No teachers listed yet.</p>`}</div>
     </div></div>
   </div>`;
 }
@@ -1143,7 +1267,7 @@ function adminSchools(){
       <td><b>${esc(r.name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}
         <div class="small muted">Contact: ${esc(r.contact_name||"(none)")}</div><div class="small muted">${esc([r.city,r.country].filter(Boolean).join(", ")||"(no location yet)")}</div>
         ${r.website?`<div class="small"><a href="${esc(r.website)}" target="_blank" rel="noopener noreferrer">Website</a></div>`:""}</td>
-      <td class="small"><details style="padding:6px 10px"><summary class="small">Read</summary><p style="margin:6px 0"><b>About</b><br>${esc(r.about||"(empty)")}</p><p style="margin:6px 0"><b>Note to reviewer</b><br>${esc(r.reviewer_note||"(empty)")}</p></details></td>
+      <td class="small"><details style="padding:6px 10px"><summary class="small">Read</summary><p style="margin:6px 0"><b>About</b><br>${esc(r.about||"(empty)")}</p><p style="margin:6px 0"><b>Kind and year founded</b><br>${esc([r.school_type,r.founded_year].filter(Boolean).join(", ")||"(empty)")}</p><p style="margin:6px 0"><b>Registration and accreditation</b><br>${esc(r.accreditation||"(empty)")}</p><p style="margin:6px 0"><b>Note to reviewer</b><br>${esc(r.reviewer_note||"(empty)")}</p></details></td>
       <td class="small">${docs?(docs.length?docs.map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showSchoolDocs('${r.id}')">Show documents</button>`}</td>
       <td>${r.teachers} <span class="small muted">(${r.teachers_public} public)</span></td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
