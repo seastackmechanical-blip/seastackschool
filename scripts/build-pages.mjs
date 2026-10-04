@@ -79,9 +79,11 @@ const track = (p) => `<script>
 }catch(e){}
 try{
   var tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // the time zone the visitor picked in the app, if any
+  try{var z=localStorage.getItem("ss:tz");if(z){new Intl.DateTimeFormat("en",{timeZone:z});tz=z}}catch(e){}
   document.querySelectorAll("time[data-local]").forEach(function(t){var d=new Date(t.dateTime);
-    t.textContent=d.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})+", "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})});
-  document.querySelectorAll("[data-tzname]").forEach(function(e){e.textContent="your time zone ("+tz+")"});
+    t.textContent=d.toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",timeZone:tz})+", "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit",timeZone:tz})});
+  document.querySelectorAll("[data-tzname]").forEach(function(e){e.textContent="your time zone ("+tz.replace(/_/g," ")+")"});
 }catch(e){}
 })();
 </script>`;

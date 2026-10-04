@@ -254,7 +254,7 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
   </div>
 </header>
 <main id="app"></main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Times show in your time zone: <b id="tzname"></b>. <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a></div></footer>
+<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Lesson times are shown in <select id="tzpick" class="tzpick" aria-label="Time zone for lesson times" onchange="setTZ(this.value)" style="max-width:230px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:inherit"></select> <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a></div></footer>
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -262,9 +262,31 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
 /* ---------- utilities ---------- */
 const $ = (s, el=document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "your local time";
-const fmtDay = d => d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});
-const fmtTime = d => d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+// Teachers are anywhere, so every lesson time is converted. It defaults to the visitor's own time zone,
+// and the visitor can pick another one (footer, Find classes, or the booking window); the choice is remembered.
+let TZ = BROWSER_TZ;
+try{ const z = localStorage.getItem("ss:tz"); if(z){ new Intl.DateTimeFormat("en",{timeZone:z}); TZ = z } }catch(e){}
+function zoned(d){
+  const p = new Intl.DateTimeFormat("en-US",{timeZone:TZ,hour:"numeric",hourCycle:"h23",weekday:"short"}).formatToParts(d);
+  return {h:+p.find(x=>x.type==="hour").value, d:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].indexOf(p.find(x=>x.type==="weekday").value)};
+}
+function tzOptions(){
+  let zs; try{ zs = Intl.supportedValuesOf("timeZone") }catch(e){ zs = [BROWSER_TZ,"UTC"] }
+  if(!zs.includes(TZ)) zs = [TZ].concat(zs);
+  return zs.map(z=>`<option value="${z}" ${z===TZ?"selected":""}>${z.replace(/_/g," ")}</option>`).join("");
+}
+function setTZ(z){
+  try{ new Intl.DateTimeFormat("en",{timeZone:z}) }catch(e){ return }
+  TZ = z;
+  try{ if(z===BROWSER_TZ) localStorage.removeItem("ss:tz"); else localStorage.setItem("ss:tz", z) }catch(e){}
+  render();
+  document.querySelectorAll("select.tzpick").forEach(s=>{ s.value = z });
+  if($("#dlg").open && typeof RB!=="undefined" && RB.cid && !RB.done) showRealBooking();
+  toast("Times now shown in " + z.replace(/_/g," "));
+}
+const fmtDay = d => d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",timeZone:TZ});
+const fmtTime = d => d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit",timeZone:TZ});
 const money = n => "$" + n.toFixed(0);
 function store(k, v){ try{ if(v===undefined){ const r=localStorage.getItem("ec:"+k); return r?JSON.parse(r):null } localStorage.setItem("ec:"+k, JSON.stringify(v)) }catch(e){ return null } }
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2600) }
@@ -412,6 +434,7 @@ function browse(){
   return `<div class="wrap browse">
     <aside class="filters" aria-label="Filters">
       <h3>Filter</h3>
+      <label class="field">Show times in<select class="tzpick" id="tzfilter" onchange="setTZ(this.value)">${tzOptions()}</select></label>
       <label class="field">Search<input value="${esc(F.q)}" oninput="S.filters.q=this.value;renderResults()" placeholder="Subject, teacher, topic"></label>
       <label class="field">Subject<select onchange="S.filters.subject=this.value;renderResults()">${optionList(subjects,F.subject,"Any subject")}</select></label>
       <label class="field">Teaching language<select onchange="S.filters.lang=this.value;renderResults()">${optionList(langs,F.lang,"Any language")}</select></label>
@@ -437,7 +460,7 @@ function matches(c){
   if(F.age){ const a=+F.age; if(a<c.ages[0]||a>c.ages[1]) return false }
   if(F.price && c.price>+F.price) return false;
   if(F.when){
-    const ss=sessions(c).filter(s=>{const h=s.start.getHours(),d=s.start.getDay();
+    const ss=sessions(c).filter(s=>{const {h,d}=zoned(s.start);
       return F.when==="morning"?h>=5&&h<12:F.when==="afternoon"?h>=12&&h<17:F.when==="evening"?h>=17&&h<23:(d===0||d===6)});
     if(!ss.length) return false;
   }
@@ -695,7 +718,7 @@ function listings(){
       ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d,i)=>`<label class="chip"><input type="checkbox" name="day" value="${i}" ${i===2||i===4?"checked":""}> ${d}</label>`).join("")}</div></fieldset>
     <label class="field">Start time (your time)<input name="time" id="nc-time" type="time" value="17:00" required></label>
     <label class="field">Lesson length (minutes)<input name="mins" id="nc-mins" type="number" min="15" step="5" value="45"></label>
-    <p class="small muted" style="grid-column:1/-1;margin:0">You set times in your own time zone (${esc(TZ)}). Students see them converted to theirs.</p>
+    <p class="small muted" style="grid-column:1/-1;margin:0">You set times in the time zone on your profile (${esc(typeof A!=="undefined" && A.teacher ? A.teacher.timezone.replace(/_/g," ") : BROWSER_TZ)}), which you can change under My profile. Students see them converted to theirs.</p>
     <label class="field" id="nc-linkwrap" style="grid-column:1/-1">Lesson link, such as Zoom or Google Meet (optional; only people who booked can see it)<input name="link" id="nc-link" placeholder="https://"></label>
     <label class="field" id="nc-placewrap" hidden>City or area (public)<input name="place" id="nc-place" maxlength="120" placeholder="e.g. Lagos, Ikeja"></label>
     <label class="field" id="nc-addrwrap" style="grid-column:1/-1" hidden>Address (optional; only people who booked can see it)<input name="address" id="nc-address" maxlength="400"></label>
@@ -749,11 +772,11 @@ function render(){
 }
 window.addEventListener("hashchange",()=>{render();window.scrollTo(0,0)});
 $("#role").value=S.role; $("#role").onchange=e=>setRole(e.target.value);
-$("#tzname").textContent=TZ;
+$("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=15"></script>
+<script src="accounts.js?v=16"></script>
 
 </body>
 </html>
