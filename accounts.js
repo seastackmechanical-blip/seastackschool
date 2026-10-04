@@ -11,7 +11,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null};
 // Demo teachers and classes disappear by themselves once this many real teachers are listed.
 const DEMO_OFF_AT = 3;
 // Schools stay out of the top menu until teachers and families are working well; their pages still exist.
@@ -265,12 +265,12 @@ async function saveProfile(f){
 }
 function myClassList(){
   if(!A.classes.length) return `<div class="empty" style="margin-bottom:16px">You haven't listed a class yet.</div>`;
-  return `<div style="margin-bottom:16px">${A.classes.map(x=>{ const c=toClass(x); return `<div class="lesson">
+  return `${classEditForm()}<div style="margin-bottom:16px">${A.classes.map(x=>{ const c=toClass(x); return `<div class="lesson">
     <div><span class="tag ${c.type}">${typeLabel(c)}</span> <b>${esc(c.title)}</b>
       <div class="small muted">${modeLabel(c)} · ${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (${esc((A.teacher.timezone||"UTC").replace(/_/g," "))} time) · ${c.mins} min</div>
       <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc((c.mode==="in_person"?A.addresses[x.id]:A.links[x.id])||"")}" placeholder="${c.mode==="in_person"?"Address (only people who booked can see it)":"Lesson link (Zoom, Meet…): https://"}" aria-label="${c.mode==="in_person"?"Address":"Lesson link"} for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">${c.mode==="in_person"?"Save address":"Save link"}</button></div>
       ${A.teacher.status==="approved"?`<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">This class's own page to share: <a href="${SITE_BASE}classes/${slugify(x.title,x.id)}/">${esc(SITE_BASE)}classes/${slugify(x.title,x.id)}/</a></div>`:""}</div>
-    <button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div>` }).join("")}</div>`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.editing='${x.id}';render();$('#editclass')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div></div>` }).join("")}</div>`;
 }
 addListing = async function(f){
   const days=[...f.querySelectorAll("[name=day]:checked")].map(x=>+x.value);
@@ -292,6 +292,54 @@ addListing = async function(f){
   }
   await loadMe(); await loadPublic(); toast("Class saved"); render();
 };
+// Editing a class. While it has upcoming bookings its days, time, length, kind and place are fixed
+// (the database enforces the same rule), so families never find their lesson moved under them.
+function classHasUpcoming(id){ return A.bookings.some(b=>b.class_id===id && b.status==="booked" && Date.parse(b.starts_at)>Date.now()) }
+function classEditForm(){
+  const x=A.classes.find(c=>c.id===A.editing); if(!x) return "";
+  const locked=classHasUpcoming(x.id), dis=locked?"disabled":"", zone=esc((A.teacher.timezone||"UTC").replace(/_/g," "));
+  return `<form class="box row" id="editclass" novalidate onsubmit="event.preventDefault();saveClass(this)">
+    <h3 style="grid-column:1/-1;margin:0">Edit class</h3>
+    ${locked?`<div class="notice" style="grid-column:1/-1;margin:0">This class has upcoming bookings, so its days, time, length, kind and place can't be changed. You can still change the title, subject, language, level, ages, price and class size. To change the schedule, cancel the bookings first or create a new class.</div>`:""}
+    <label class="field" style="grid-column:1/-1">Class title<input name="title" id="ed-title" maxlength="140" value="${esc(x.title)}"></label>
+    <label class="field">Subject<input name="subject" id="ed-subject" maxlength="60" value="${esc(x.subject)}"></label>
+    <label class="field">Teaching language<input name="lang" id="ed-lang" maxlength="60" value="${esc(x.language)}"></label>
+    <label class="field">Student level<select name="level" id="ed-level">${["Beginner","Intermediate","Advanced"].map(l=>`<option ${l===x.level?"selected":""}>${l}</option>`).join("")}</select></label>
+    <label class="field">Price per lesson (USD)<input name="price" id="ed-price" type="number" min="1" value="${+x.price}"></label>
+    <label class="field">Kind of class<select name="type" id="ed-type" ${dis} onchange="$('#ed-capwrap').hidden=this.value==='private'"><option value="private" ${x.type==="private"?"selected":""}>Private lesson</option><option value="group" ${x.type==="group"?"selected":""}>Small group class</option></select></label>
+    <label class="field" id="ed-capwrap" ${x.type==="private"?"hidden":""}>Maximum class size<input name="cap" id="ed-cap" type="number" min="2" max="50" value="${x.type==="group"?x.capacity:6}"></label>
+    <label class="field">Youngest age<input name="a0" id="ed-a0" type="number" min="3" value="${x.age_min}"></label>
+    <label class="field">Oldest age<input name="a1" id="ed-a1" type="number" min="3" value="${x.age_max}"></label>
+    <label class="field">Where<select name="mode" id="ed-mode" ${dis} onchange="$('#ed-placewrap').hidden=this.value!=='in_person'"><option value="online" ${x.mode!=="in_person"?"selected":""}>Online</option><option value="in_person" ${x.mode==="in_person"?"selected":""}>In person</option></select></label>
+    <label class="field" id="ed-placewrap" ${x.mode==="in_person"?"":"hidden"}>City or area (public)<input name="place" id="ed-place" maxlength="120" value="${esc(x.place_city||"")}"></label>
+    <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Days</legend><div class="chips">${DAY3.map((d,i)=>`<label class="chip"><input type="checkbox" name="day" value="${i}" ${x.days.includes(i)?"checked":""} ${dis}> ${d}</label>`).join("")}</div></fieldset>
+    <label class="field">Start time (${zone} time)<input name="time" id="ed-time" type="time" value="${x.start_time.slice(0,5)}" ${dis}></label>
+    <label class="field">Lesson length (minutes)<input name="mins" id="ed-mins" type="number" min="15" step="5" value="${x.duration_min}" ${dis}></label>
+    <p class="small muted" style="grid-column:1/-1;margin:0">The lesson link or address is changed in the class row below. Renaming a class changes the address of its public page.</p>
+    <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Save changes</button><button type="button" class="btn ghost" onclick="A.editing=null;render()">Cancel</button></div>
+  </form>`;
+}
+async function saveClass(f){
+  const x=A.classes.find(c=>c.id===A.editing); if(!x) return;
+  const title=f.title.value.trim(), subject=f.subject.value.trim(), lang=f.lang.value.trim(), price=+f.price.value, a0=+f.a0.value, a1=Math.min(99,+f.a1.value||99);
+  if(!title || !subject || !lang) return toast("Fill in the title, subject and teaching language");
+  if(!(price>0)) return toast("Enter a price above zero");
+  if(!(a0>=3) || a1<a0) return toast("Check the ages: the oldest must be the same as or above the youngest");
+  const row={title,subject,language:lang,level:f.level.value,price,age_min:a0,age_max:a1};
+  if(classHasUpcoming(x.id)){
+    if(x.type==="group") row.capacity=Math.max(2,+f.cap.value||x.capacity);
+  } else {
+    const days=[...f.querySelectorAll("[name=day]:checked")].map(d=>+d.value), type=f.type.value, mode=f.mode.value, place=f.place.value.trim(), mins=+f.mins.value;
+    if(!days.length) return toast("Choose at least one day");
+    if(!f.time.value) return toast("Enter the start time");
+    if(!(mins>=15 && mins<=240)) return toast("Lesson length must be between 15 and 240 minutes");
+    if(mode==="in_person" && !place) return toast("Enter the city or area where the class takes place");
+    Object.assign(row,{type,capacity:type==="private"?1:Math.max(2,+f.cap.value||6),days,start_time:f.time.value,duration_min:mins,mode,place_city:mode==="in_person"?place:""});
+  }
+  const r = await sb.from("classes").update(row).eq("id",x.id).select("id").maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "The class could not be saved");
+  A.editing=null; await loadMe(); await loadPublic(); toast("Class updated"); render();
+}
 async function removeClass(id){
   if(A.removing!==id){ A.removing=id; render(); return }
   A.removing=null;
