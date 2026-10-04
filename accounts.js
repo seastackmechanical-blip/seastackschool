@@ -544,10 +544,11 @@ reviewsFor = function(tid){
 };
 function realReviewBox(tid){
   const t=teacher(tid), first=esc((t.name||"this teacher").split(" ")[0]), p=s=>`<p class="muted small" style="margin:0">${s}</p>`;
-  if(!A.user) return p(`Students and parents can rate ${first} after a lesson. <a href="#/account">Sign in</a>`);
-  if(!A.learner) return p(`Ratings come from students and parents who have had a lesson with ${first}.`);
-  const had=A.bookings.some(b=>b.learner_id===A.user.id && b.status==="booked" && Date.parse(b.starts_at)<=Date.now() && cls(b.class_id)?.t===tid);
-  if(!had) return p(`You can rate ${first} after you've had a lesson with them.`);
+  if(!A.user) return p(`Only students and parents who have finished a lesson with ${first} can rate them. <a href="#/account">Sign in</a>`);
+  if(!A.learner) return p(`Only students and parents who have finished a lesson with ${first} can rate them.`);
+  // the lesson must have finished, the same rule the database enforces
+  const had=A.bookings.some(b=>{ const c=cls(b.class_id); return b.learner_id===A.user.id && b.status==="booked" && c && c.t===tid && Date.parse(b.starts_at)+c.mins*6e4<=Date.now() });
+  if(!had) return p(`You can rate ${first} after you've finished a lesson with them.`);
   const mine=A.reviews.find(r=>r.teacher_id===tid && r.learner_id===A.user.id);
   return `<form id="revf" novalidate onsubmit="event.preventDefault();submitReview('${tid}',this)">
     <label class="field">Your rating<select name="stars" id="rv-stars">${[5,4,3,2,1].map(n=>`<option value="${n}" ${mine&&mine.stars===n?"selected":""}>${n} ${n===1?"star":"stars"}</option>`).join("")}</select></label>
