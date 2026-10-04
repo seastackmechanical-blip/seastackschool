@@ -117,7 +117,6 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
   <nav class="main" aria-label="Main">
     <a href="${BASE}classes/">Classes</a>
     <a href="${BASE}teachers/">Teachers</a>
-    <a href="${BASE}schools/">Schools</a>
     <a href="${BASE}#/help">Help</a>
   </nav>
   <a class="btn teach-nav" href="${BASE}#/studio">Start teaching ↗</a>
@@ -126,7 +125,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 <main id="main" class="wrap page static">
 ${body}
 </main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="${BASE}">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Online payment is not open yet; nothing is charged when you book.</div></footer>
+<footer><div class="wrap"><div class="footer-top"><a class="logo" href="${BASE}">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Online payment is not open yet; nothing is charged when you book. <a href="${BASE}schools/">Schools</a> · <a href="${BASE}#/terms">Terms</a> · <a href="${BASE}#/privacy">Privacy</a></div></footer>
 ${track(trackPath)}
 </body>
 </html>
@@ -216,7 +215,7 @@ for (const t of teachers) {
     jsonld: { "@context": "https://schema.org", "@type": "ProfilePage", mainEntity: { "@type": "Person", name, description: t.intro || undefined, knowsLanguage: t.languages?.length ? t.languages : undefined, url: `${SITE}teachers/${tSlug(t)}/` } },
     body: `<div class="crumbs"><a href="${BASE}teachers/">Teachers</a></div>
 <div class="profile-head"><div class="avatar lg" style="background:#C9D6F2" aria-hidden="true">${esc(initials(name))}</div>
-  <div><h1 style="margin:0">${esc(name)}</h1><div class="muted">${esc([t.city ? "Teaching from " + t.city : "", t.years_experience ? t.years_experience + " years' experience" : ""].filter(Boolean).join(" · "))}${schoolLink(t)}</div></div></div>
+  <div><h1 style="margin:0">${esc(name)}</h1><div class="muted">${esc([t.city ? "Teaching from " + t.city : "", t.years_experience ? t.years_experience + " years' experience" : ""].filter(Boolean).join(" · "))}${schoolLink(t)}</div>${t.identity_checked_at ? `<div class="small" style="margin-top:4px"><span class="tag ok">Identity checked by SeastackSchool</span></div>` : ""}</div></div>
 <div class="cols"><div>
   <div class="box">${t.intro ? `<h2 style="font-size:22px">About me</h2><p>${esc(t.intro)}</p>` : ""}${t.experience ? `<h2 style="font-size:22px">Experience</h2><p>${esc(t.experience)}</p>` : ""}
     ${t.languages?.length ? `<h2 style="font-size:22px">Teaching languages</h2><div class="chips">${t.languages.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}

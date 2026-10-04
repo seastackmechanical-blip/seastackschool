@@ -10,7 +10,12 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   aff:null, adash:null, arows:null, afilter:"pending",
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
-  reviews:[], rrows:null, mreviews:[]};
+  reviews:[], rrows:null, mreviews:[],
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null};
+// Demo teachers and classes disappear by themselves once this many real teachers are listed.
+const DEMO_OFF_AT = 3;
+// Schools stay out of the top menu until teachers and families are working well; their pages still exist.
+const SHOW_SCHOOLS_MENU = false;
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
 let RB = {};         // the real booking in progress
 
@@ -71,9 +76,14 @@ async function loadPublic(){
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
   for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
   const ok = new Set();
-  t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,color:"#C9D6F2",
+  t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,checked:!!x.identity_checked_at,color:"#C9D6F2",
     years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience}) });
   c.data.filter(x=>ok.has(x.teacher_id)).forEach(x=>CLASSES.push(toClass(x)));
+  if(t.data.length >= DEMO_OFF_AT && TEACHERS.some(x=>!x.real)){
+    for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(!arr[i].real) arr.splice(i,1);
+    S.bookings=[]; save();      // demo bookings pointed at demo classes that are now gone
+    const rb=$(".demo-ribbon"); if(rb) rb.textContent="ONLINE PAYMENT IS NOT OPEN YET / NOTHING IS CHARGED WHEN YOU BOOK";
+  }
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
@@ -99,6 +109,7 @@ async function loadMe(){
   A.school = sc.data || null; A.schoolPriv = sp.data || null;
   if(A.school) await loadSchoolExtras();
   if(A.teacher && A.teacher.school_id){ const r = await sb.from("schools").select("id,name,status").eq("id",A.teacher.school_id).maybeSingle(); A.mySchool = r.data || null }
+  A.tdocs = A.teacher ? await listDocs(A.user.id, "teacher-docs") : [];
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -112,6 +123,8 @@ async function loadAdmin(){
   const [r,l,b,f] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings"), sb.rpc("admin_list_affiliates")]);
   const sr = await sb.rpc("admin_list_schools"); if(!sr.error) A.srows = sr.data;
   const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
+  const at = await sb.rpc("admin_attention"); if(!at.error) A.attn = at.data;
+  const ib = await sb.rpc("admin_inbox"); if(!ib.error) A.inbox = ib.data;
   if(r.error || l.error || b.error || f.error) toast((r.error||l.error||b.error||f.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data; A.arows = f.data }
 }
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=true; render() }
@@ -123,7 +136,7 @@ function chrome(){
   a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
   a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : A.aff ? "Affiliate dashboard" : A.school ? "My school" : "My account";
   let sl = $("#navschools");
-  if(!sl){ sl=document.createElement("a"); sl.id="navschools"; sl.href="#/schools"; sl.dataset.r="schools"; sl.textContent="Schools"; const nav=$("nav.main"); nav.insertBefore(sl, nav.querySelector('[data-r="help"]')) }
+  if(!sl && SHOW_SCHOOLS_MENU){ sl=document.createElement("a"); sl.id="navschools"; sl.href="#/schools"; sl.dataset.r="schools"; sl.textContent="Schools"; const nav=$("nav.main"); nav.insertBefore(sl, nav.querySelector('[data-r="help"]')) }
   a.onclick = A.user ? null : () => { A.mode="signin"; A.err=""; A.msg="" };
   let n = $("#navadmin");
   if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
@@ -147,6 +160,7 @@ function authPage(){
       <label class="field">Email<input name="email" id="au-email" type="email" required autocomplete="email"></label>
       ${fg?"":`<label class="field">Password${up?" (at least 8 characters)":""}<input name="password" id="au-pass" type="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>`}
       <div class="err" id="autherr">${esc(A.err)}</div>
+      ${up?`<p class="small muted" style="margin:0">By creating an account you agree to the <a href="${SITE_BASE}#/terms" target="_blank" rel="noopener">Terms of Use</a> and the <a href="${SITE_BASE}#/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</p>`:""}
       <button class="btn" id="authbtn" style="align-self:flex-start">${up?"Create account":fg?"Send reset link":"Sign in"}</button>
     </form>
     <p class="small" style="margin:14px 0 0;display:flex;gap:8px;flex-wrap:wrap">
@@ -171,7 +185,7 @@ async function authSubmit(f){
   let error=null;
   try{
     if(A.mode==="signup"){
-      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null,school_name:f.kind.value==="school"?f.school_name.value.trim():null,school_code:f.kind.value==="teacher"?(f.school_code.value.trim()||null):null},emailRedirectTo:back}});
+      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,accepted_terms_at:new Date().toISOString(),ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null,school_name:f.kind.value==="school"?f.school_name.value.trim():null,school_code:f.kind.value==="teacher"?(f.school_code.value.trim()||null):null},emailRedirectTo:back}});
       error=r.error;
       if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
     } else if(A.mode==="forgot"){
@@ -218,7 +232,7 @@ studio = function(){
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     ${statusBanner()}${teacherSchoolBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?profileForm():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?profileForm()+teacherDocsBox():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
@@ -343,6 +357,7 @@ function adminPage(){
   if(A.adminTab==="affiliates") return adminAffiliates();
   if(A.adminTab==="schools") return adminSchools();
   if(A.adminTab==="reviews") return adminReviews();
+  if(A.adminTab==="inbox") return adminInbox();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.filter===k}" onclick="A.filter='${k}';render()">${l}</button>`;
@@ -352,12 +367,15 @@ function adminPage(){
     ${adminHead()}
     <p class="muted">Approve a teacher to make their profile and classes public. Suspend one to hide them again. Every change is recorded with your account and the time.</p>
     <div class="chips" style="margin-bottom:14px">${chip("pending","Waiting for approval ("+n("pending")+")")}${chip("approved","Approved ("+n("approved")+")")}${chip("suspended","Suspended ("+n("suspended")+")")}${chip("all","All ("+rows.length+")")}</div>
-    ${list.length?`<div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Teacher</th><th>Profile</th><th>Classes</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+    ${list.length?`<div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Teacher</th><th>Profile</th><th>Classes and identity</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
     ${list.map(r=>`<tr>
       <td><b>${esc(r.full_name||"(no name yet)")}</b><div class="small">${esc(r.email)}</div>${r.email_confirmed?"":`<div class="small" style="color:var(--rose)">Email not confirmed</div>`}</td>
       <td class="small">${esc([r.city,r.timezone].filter(Boolean).join(" · "))}<br>${r.years_experience} years · ${esc((r.languages||[]).join(", ")||"no languages yet")}
         <details style="margin-top:6px;padding:6px 10px"><summary class="small">Read profile</summary><p style="margin:6px 0"><b>Introduction</b><br>${esc(r.intro||"(empty)")}</p><p style="margin:6px 0"><b>Experience</b><br>${esc(r.experience||"(empty)")}</p></details></td>
-      <td>${r.class_count}</td>
+      <td>${r.class_count} ${r.class_count===1?"class":"classes"}${r.school_name?`<div class="small muted">School: ${esc(r.school_name)}</div>`:""}
+        <div class="small" style="margin-top:6px">${r.identity_checked_at?`<span class="tag ok">Identity checked</span> ${new Date(r.identity_checked_at).toLocaleDateString()}`:`<span class="tag group">Identity not checked</span>`}</div>
+        <div class="small" style="margin-top:6px">${A.tdocsAdmin[r.id]?(A.tdocsAdmin[r.id].length?A.tdocsAdmin[r.id].map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showTeacherDocs('${r.id}')">Show documents</button>`}</div>
+        <div class="acts"><button class="btn sm ghost" onclick="setIdentity('${r.id}',${!r.identity_checked_at})">${r.identity_checked_at?"Remove identity check":"Mark identity checked"}</button></div></td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
       <td>${pill(r.status)}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
       <td><input id="note-${r.id}" aria-label="Note for ${esc(r.full_name)}" placeholder="Note (optional)" maxlength="1000">
@@ -378,7 +396,8 @@ function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
       <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("visits","Visits")}</div>`;
+    ${attentionPanel()}
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("visits","Visits")}</div>`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -576,6 +595,150 @@ async function bookReal(){
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
 }
 
+/* ---------- trust and safety: identity documents, reports, the Help inbox, what needs the admin ---------- */
+function trustLine(t){
+  return t && t.real && t.checked ? `<div class="small" style="margin-top:4px"><span class="tag ok">Identity checked by SeastackSchool</span></div>` : "";
+}
+function teacherDocsBox(){
+  const t=A.teacher;
+  return `<div class="box"><h3>Identity documents</h3>
+    <p class="muted small">Upload a photo ID, and any teaching certificate you'd like us to see. Only you and SeastackSchool can open these; they are never shown to students or visitors. ${t.identity_checked_at?`<b>Your identity was checked on ${new Date(t.identity_checked_at).toLocaleDateString()}</b>, and your profile shows "Identity checked by SeastackSchool".`:"Once we have checked them, your profile shows \"Identity checked by SeastackSchool\"."}</p>
+    ${A.tdocs.length?A.tdocs.map((d,i)=>`<div class="lesson"><span style="overflow-wrap:anywhere">${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a>`:esc(d.name)}</span><button class="btn ghost sm" onclick="dropTDoc(${i})">${A.removingTDoc===d.path?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No documents uploaded yet.</div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px"><input type="file" id="tdocfile" accept=".pdf,.jpg,.jpeg,.png" aria-label="Choose a document"><button class="btn sm" id="tdocbtn" onclick="uploadTDoc()">Upload</button></div>
+    <p class="small muted" style="margin:8px 0 0">PDF, JPG or PNG, up to 10 MB each, up to 5 files.</p></div>`;
+}
+async function uploadTDoc(){
+  const file=$("#tdocfile").files[0], btn=$("#tdocbtn");
+  if(!file) return toast("Choose a file first");
+  if(A.tdocs.length>=5) return toast("You can upload up to 5 documents. Remove one first.");
+  if(file.size>10*1024*1024) return toast("That file is larger than 10 MB");
+  if(!["application/pdf","image/jpeg","image/png"].includes(file.type)) return toast("Upload a PDF, JPG or PNG file");
+  btn.disabled=true; btn.textContent="Uploading…";
+  const path=A.user.id+"/"+Date.now()+"-"+file.name.replace(/[^A-Za-z0-9._-]/g,"_").slice(-80);
+  const r = await sb.storage.from("teacher-docs").upload(path, file, {contentType:file.type});
+  if(r.error){ toast(r.error.message); render(); return }
+  A.tdocs = await listDocs(A.user.id, "teacher-docs"); toast("Document uploaded"); render();
+}
+async function dropTDoc(i){
+  const d=A.tdocs[i]; if(!d) return;
+  if(A.removingTDoc!==d.path){ A.removingTDoc=d.path; render(); return }
+  A.removingTDoc=null;
+  const r = await sb.storage.from("teacher-docs").remove([d.path]);
+  if(r.error) return toast(r.error.message);
+  A.tdocs = await listDocs(A.user.id, "teacher-docs"); toast("Document removed"); render();
+}
+async function showTeacherDocs(id){ A.tdocsAdmin[id] = await listDocs(id, "teacher-docs"); render() }
+async function setIdentity(id, checked){
+  const r = await sb.rpc("admin_set_identity_checked",{p_teacher_id:id,p_checked:checked});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); await loadPublic(); toast(checked?"Marked as identity checked":"Identity check removed"); render();
+}
+// A signed-in person can report a concern about a teacher; it goes to the admin only.
+function reportBox(tid){
+  const t=teacher(tid);
+  if(!A.user) return `<details style="margin-top:0"><summary>Report a concern about this teacher</summary><p class="small muted" style="margin:8px 0 0"><a href="#/account">Sign in</a> to send a report, or write to us from the <a href="#/help">Help page</a>. If a child is in immediate danger, contact your local emergency services first.</p></details>`;
+  if(A.user.id===tid) return "";
+  return `<details style="margin-top:0"><summary>Report a concern about this teacher</summary>
+    <form id="reportf" novalidate onsubmit="event.preventDefault();sendReport('${tid}',this)" style="margin-top:10px">
+      <label class="field">What is it about?<select name="category" id="rp-cat"><option value="safety">A child's safety</option><option value="conduct">The teacher's behaviour</option><option value="no_show">The teacher did not turn up</option><option value="listing">The profile or class is misleading</option><option value="other">Something else</option></select></label>
+      <label class="field" style="margin-top:8px">What happened?<textarea name="details" id="rp-details" rows="3" maxlength="2000"></textarea></label>
+      <button class="btn sm" style="margin-top:10px">Send report</button>
+      <p class="small muted" style="margin:8px 0 0">Only SeastackSchool sees this; ${esc((t.name||"the teacher").split(" ")[0])} is not told who sent it. If a child is in immediate danger, contact your local emergency services first.</p>
+    </form></details>`;
+}
+async function sendReport(tid,f){
+  const d=f.details.value.trim();
+  if(d.length<10) return toast("Describe what happened in a sentence or two");
+  const r = await sb.rpc("submit_report",{p_teacher_id:tid,p_category:f.category.value,p_details:d});
+  if(r.error) return toast(r.error.message);
+  f.reset(); toast("Report sent to SeastackSchool");
+}
+// The Help page form: stored for the admin to read.
+async function sendSupport(f){
+  const email=f.email.value.trim(), msg=f.message.value.trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter a valid email address so we can reply");
+  if(msg.length<5) return toast("Write your message first");
+  const r = await sb.rpc("submit_support",{p_email:email,p_topic:f.topic.value,p_message:msg});
+  if(r.error) return toast(r.error.message);
+  f.reset(); toast("Message sent to SeastackSchool");
+}
+function attentionPanel(){
+  const a=A.attn; if(!a) return "";
+  const go=(tab,extra)=>`A.adminTab='${tab}';${extra||""}render()`;
+  const items=[
+    [a.teachers,"teacher","teachers","waiting for approval",go("teachers","A.filter='pending';")],
+    [a.schools,"school","schools","waiting for review",go("schools","A.sfilter='pending';")],
+    [a.affiliates,"affiliate","affiliates","waiting for approval",go("affiliates","A.afilter='pending';")],
+    [a.disputes,"attendance mark","attendance marks","disputed by a family",go("bookings","A.bfilter='disputed';")],
+    [a.hidden_by_school,"rating","ratings","hidden by a school",go("reviews")],
+    [a.reports,"report","reports","about a teacher",go("inbox")],
+    [a.messages,"Help message","Help messages","not answered",go("inbox")]
+  ].filter(x=>x[0]>0);
+  if(!items.length) return `<div class="ok" style="margin:12px 0">Nothing is waiting for you.</div>`;
+  return `<div class="notice" style="margin:12px 0"><b>Waiting for you:</b> <span style="display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:middle">${items.map(([n,one,many,what,fn])=>`<button class="chip" onclick="${fn}">${n} ${n===1?one:many} ${what}</button>`).join("")}</span></div>`;
+}
+function adminInbox(){
+  const ib=A.inbox||{reports:[],messages:[]}, cats={safety:"A child's safety",conduct:"Behaviour",no_show:"Teacher did not turn up",listing:"Misleading profile or class",other:"Other"};
+  const done=(kind,id,st)=>st==="open"?`<button class="btn sm" onclick="resolveItem('${kind}','${id}',true)">Mark as dealt with</button>`:`<span class="tag ok">Dealt with</span> <button class="btn sm ghost" onclick="resolveItem('${kind}','${id}',false)">Reopen</button>`;
+  return `<div class="wrap page">
+    ${adminHead()}
+    <h3>Reports about teachers</h3>
+    <p class="muted">Sent by signed-in students, parents and others from a teacher's profile. The teacher is not told who reported them. You can suspend the teacher from the Teachers tab.</p>
+    ${ib.reports.length?`<div class="scroll"><table class="admin" style="min-width:800px"><thead><tr><th>Teacher</th><th>About</th><th>What happened</th><th>From</th><th>Date</th><th>Action</th></tr></thead><tbody>
+    ${ib.reports.map(r=>`<tr><td><b>${esc(r.teacher_name||"(no name)")}</b><div class="small">${esc(r.teacher_email)}</div><div class="small muted">Teacher is ${esc(r.teacher_status)}</div></td>
+      <td><span class="tag ${r.category==="safety"?"bad":"group"}">${cats[r.category]||esc(r.category)}</span></td>
+      <td class="small" style="max-width:300px;white-space:pre-line">${esc(r.details)}${r.admin_note?`<div class="muted" style="margin-top:4px">Your note: ${esc(r.admin_note)}</div>`:""}</td>
+      <td class="small">${esc(r.reporter_email||"(account deleted)")}</td><td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
+      <td>${r.status==="open"?`<input id="rnote-${r.id}" aria-label="Note" placeholder="Note (optional)" maxlength="1000">`:""}<div class="acts">${done("report",r.id,r.status)}</div></td></tr>`).join("")}</tbody></table></div>`
+    :`<div class="empty">No reports.</div>`}
+    <h3 style="margin-top:28px">Help messages</h3>
+    <p class="muted">Sent from the Help page. Reply to the person from your own email; this list only tracks what has been dealt with.</p>
+    ${ib.messages.length?`<div class="scroll"><table class="admin" style="min-width:700px"><thead><tr><th>From</th><th>Topic</th><th>Message</th><th>Date</th><th>Action</th></tr></thead><tbody>
+    ${ib.messages.map(m=>`<tr><td class="small" style="overflow-wrap:anywhere">${esc(m.email)}</td><td class="small">${esc(m.topic)}</td><td class="small" style="max-width:340px;white-space:pre-line">${esc(m.message)}</td>
+      <td class="small">${new Date(m.created_at).toLocaleDateString()}</td><td><div class="acts" style="margin:0">${done("message",m.id,m.status)}</div></td></tr>`).join("")}</tbody></table></div>`
+    :`<div class="empty">No messages.</div>`}
+  </div>`;
+}
+async function resolveItem(kind,id,resolved){
+  const note = kind==="report" ? ($("#rnote-"+id)?.value.trim()||null) : null;
+  const r = await sb.rpc("admin_resolve",{p_kind:kind,p_id:String(id),p_resolved:resolved,p_note:note});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); toast(resolved?"Marked as dealt with":"Reopened"); render();
+}
+// Terms of Use and Privacy Policy. Plain-language drafts of how the site works today; to be reviewed by a lawyer.
+function legalPage(title, updated, sections){
+  return `<div class="wrap page"><div style="max-width:70ch"><h2>${title}</h2><p class="muted small">Last updated ${updated}</p>
+    ${sections.map(([h,ps])=>`<h3 style="margin-top:24px">${h}</h3>${ps.map(p=>`<p>${p}</p>`).join("")}`).join("")}
+    <p class="muted small" style="margin-top:28px">Questions about this page? Write to us from the <a href="#/help">Help page</a>.</p></div></div>`;
+}
+function termsPage(){
+  return legalPage("Terms of Use","3 October 2026",[
+    ["What SeastackSchool is",["SeastackSchool is a website where independent teachers and schools list lessons, online or in person, and students and parents book them. Teachers and schools are not employees of SeastackSchool. Each teacher or school is responsible for the lessons they give."]],
+    ["Accounts",["You must give accurate information and keep your password to yourself. One person or one school per account.","Student accounts are for people aged 13 or over. Children under 13 do not have accounts: a parent or guardian books for them from a parent account and is responsible for those bookings."]],
+    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee."]],
+    ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons."]],
+    ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
+    ["Prices and payment",["Prices are set by teachers and shown in US dollars. Online payment is not open yet: booking on SeastackSchool charges nothing. When payment opens, these terms will be updated first."]],
+    ["Ratings",["Only a student or parent who attended and finished a lesson can rate that teacher. Ratings must be honest and about the lesson. SeastackSchool, and a school for its own teachers, may hide a rating."]],
+    ["Affiliates",["Affiliates are credited for accounts that sign up through their link. No commission is earned or paid until online payment opens and the rates are confirmed."]],
+    ["What is not allowed",["Do not use SeastackSchool to harm or harass anyone, to contact children for any purpose other than their lessons, to post false or misleading information, to upload documents that are not yours, or to interfere with the site."]],
+    ["Reports, suspension and removal",["You can report a concern about a teacher from their profile. We may suspend or remove any account, listing or rating that breaks these terms or puts someone at risk."]],
+    ["Changes",["We may change these terms as the site grows. The date at the top shows the latest version."]]
+  ]);
+}
+function privacyPage(){
+  return legalPage("Privacy Policy","3 October 2026",[
+    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (city, time zone, experience, languages, introduction), your classes, lesson links or addresses, and any identity documents you upload.","<b>Parents:</b> each child's first name and age. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send."]],
+    ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
+    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name), not the family's email. A school sees the same for its teachers.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
+    ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
+    ["Emails",["We email you to confirm your address, to reset your password, and about your bookings."]],
+    ["How long we keep it",["We keep your information while your account exists. Documents stay until you remove them. To delete your account and its data, write to us from the Help page; some records may be kept where the law requires it."]],
+    ["Children",["Children under 13 use SeastackSchool only through a parent's account. A parent can remove a child from their account at any time."]],
+    ["Your choices",["You can edit your profile, remove children, remove documents and cancel bookings from your account. For anything else, including a copy of your data or a correction, write to us from the Help page."]]
+  ]);
+}
+
 /* ---------- ratings: real reviews for real teachers, from people who have had a lesson ---------- */
 const baseReviewsFor = reviewsFor;
 reviewsFor = function(tid){
@@ -631,12 +794,12 @@ function schoolTag(t){
   const s = t && t.school && A.schools.find(x=>x.id===t.school);
   return s ? ` · <a href="#/school/${s.id}">${esc(s.name)}</a>` : "";
 }
-async function listDocs(folder){
-  const l = await DOCS().list(folder, {limit:50, sortBy:{column:"created_at", order:"asc"}});
+async function listDocs(folder, bucket="school-docs"){
+  const l = await sb.storage.from(bucket).list(folder, {limit:50, sortBy:{column:"created_at", order:"asc"}});
   const files = (l.data||[]).filter(f=>f.name && f.id);
   if(!files.length) return [];
   const paths = files.map(f=>folder+"/"+f.name);
-  const s = await DOCS().createSignedUrls(paths, 3600);
+  const s = await sb.storage.from(bucket).createSignedUrls(paths, 3600);
   return files.map((f,i)=>({name:f.name.replace(/^\d+-/,""), path:paths[i], url:(s.data||[])[i]?.signedUrl || ""}));
 }
 async function loadSchoolExtras(){
@@ -864,10 +1027,10 @@ function partnerPage(){
         </tbody></table></div>
       <div class="box"><h3>Your tier: ${esc(cur?cur.name:"Starter")}</h3>
         <table style="min-width:0"><thead><tr><th>Tier</th><th>Active referrals</th><th>Commission</th></tr></thead><tbody>
-        ${tiers.map(t=>`<tr><td>${t===cur?`<b>${esc(t.name)}</b> <span class="tag ok">You</span>`:esc(t.name)}</td><td>${t.min}${t===tiers[tiers.length-1]?"+":""}</td><td>${t.rate}%</td></tr>`).join("")}</tbody></table>
-        <p class="small" style="margin:10px 0 0">${next?`${next.min-d.active} more active ${next.min-d.active===1?"referral":"referrals"} to reach ${esc(next.name)} (${next.rate}%).`:"You are on the top tier."}</p>
-        <p class="small muted" style="margin:8px 0 0">Second level ${d.settings.l2_rate}%, third level ${d.settings.l3_rate}%.</p>
-        <p class="small muted" style="margin:8px 0 0">Commission is a share of what SeastackSchool collects from the accounts you refer. Online payment is not open yet, so nothing is earned or paid yet; these are the planned rates. Earned so far: <b>$0</b>.</p></div>
+        ${tiers.map(t=>`<tr><td>${t===cur?`<b>${esc(t.name)}</b> <span class="tag ok">You</span>`:esc(t.name)}</td><td>${t.min}${t===tiers[tiers.length-1]?"+":""}</td><td>${d.settings.rates_public?t.rate+"%":"To be confirmed"}</td></tr>`).join("")}</tbody></table>
+        <p class="small" style="margin:10px 0 0">${next?`${next.min-d.active} more active ${next.min-d.active===1?"referral":"referrals"} to reach ${esc(next.name)}${d.settings.rates_public?" ("+next.rate+"%)":""}.`:"You are on the top tier."}</p>
+        ${d.settings.rates_public?`<p class="small muted" style="margin:8px 0 0">Second level ${d.settings.l2_rate}%, third level ${d.settings.l3_rate}%.</p>`:""}
+        <p class="small muted" style="margin:8px 0 0">Commission is a share of what SeastackSchool collects from the accounts you refer. ${d.settings.rates_public?"These are the planned rates.":"The commission rates will be confirmed before online payment opens."} Online payment is not open yet, so nothing is earned or paid yet. Earned so far: <b>$0</b>.</p></div>
     </div></div>
   </div>`;
 }
@@ -908,8 +1071,8 @@ async function setAffiliateStatus(id,status){
 }
 
 /* ---------- visits: where people come from and when (no cookies, no IP addresses) ---------- */
-const ROUTES = ["classes","learning","studio","help","teacher","account","admin","partner","schools","school","myschool"];
-const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts","/partner":"Affiliate dashboard","/schools":"Schools","/school":"A school's page","/myschool":"School dashboard"};
+const ROUTES = ["classes","learning","studio","help","teacher","account","admin","partner","schools","school","myschool","terms","privacy"];
+const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts","/partner":"Affiliate dashboard","/schools":"Schools","/school":"A school's page","/myschool":"School dashboard","/terms":"Terms of Use","/privacy":"Privacy Policy"};
 let lastTracked = null, memSid = null;
 function trackVisit(r){
   if(!sb || !A.ready || A.admin) return;          // the admin's own visits are not counted
@@ -968,8 +1131,8 @@ render = function(){
   let r=routeName();
   // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
   if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
-  if(["admin","account","partner","myschool","school","schools"].includes(r)){
-    $("#app").innerHTML = r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
+  if(["admin","account","partner","myschool","school","schools","terms","privacy"].includes(r)){
+    $("#app").innerHTML = r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
   trackVisit(r);

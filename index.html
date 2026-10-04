@@ -254,7 +254,7 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
   </div>
 </header>
 <main id="app"></main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Lesson times are shown in <select id="tzpick" class="tzpick" aria-label="Time zone for lesson times" onchange="setTZ(this.value)" style="max-width:230px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:inherit"></select> <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a></div></footer>
+<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Teachers, classes and reviews marked Demo are samples, not real people. Online payment is not open yet; nothing is charged. Lesson times are shown in <select id="tzpick" class="tzpick" aria-label="Time zone for lesson times" onchange="setTZ(this.value)" style="max-width:230px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:inherit"></select> <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a> · <a href="#/terms">Terms</a> · <a href="#/privacy">Privacy</a></div></footer>
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -407,7 +407,7 @@ function discover(subject='',type=''){S.filters={q:'',subject,lang:'',age:'',lev
 function home(){
  const artwork=["<svg class=\"art-illustration\" viewBox=\"0 0 300 195\" aria-hidden=\"true\"><circle cx=\"154\" cy=\"97\" r=\"65\" fill=\"#d8c6ee\"/><path d=\"M52 152L240 152L223 169H70Z\" fill=\"#b09dc9\"/><rect x=\"78\" y=\"50\" width=\"145\" height=\"104\" rx=\"9\" fill=\"#8f75b3\"/><rect x=\"85\" y=\"57\" width=\"131\" height=\"85\" rx=\"4\" fill=\"#fdf7fe\"/><path d=\"M122 80L106 95L122 110M177 80L193 95L177 110M160 75L144 117\" fill=\"none\" stroke=\"#bba0d4\" stroke-width=\"5\" stroke-linecap=\"round\"/><path d=\"M229 60q26-15 28 8t-22 27\" fill=\"none\" stroke=\"#d4b772\" stroke-width=\"3\"/><circle cx=\"61\" cy=\"83\" r=\"10\" fill=\"#edc994\"/><path d=\"M48 119l7-9 8 9-8 8Z\" fill=\"#bca5d9\"/><path d=\"M218 42l4-10 4 10 10 4-10 4-4 10-4-10-10-4Z\" fill=\"#e9c381\"/></svg>","<svg class=\"art-illustration\" viewBox=\"0 0 300 195\" aria-hidden=\"true\"><ellipse cx=\"153\" cy=\"153\" rx=\"88\" ry=\"13\" fill=\"#d6e5bd\"/><circle cx=\"160\" cy=\"94\" r=\"57\" fill=\"#e4edce\"/><path d=\"M76 148L119 63L162 148Z\" fill=\"#b6cf92\" stroke=\"#8ba775\" stroke-width=\"2\"/><path d=\"M90 142L119 85L148 142Z\" fill=\"#f3f7e9\"/><rect x=\"151\" y=\"98\" width=\"61\" height=\"51\" rx=\"5\" fill=\"#d4b989\"/><path d=\"M151 98l23-20 61 1-23 19M212 98l23-19v49l-23 21\" fill=\"#ead5b0\" stroke=\"#c0a678\"/><ellipse cx=\"157\" cy=\"77\" rx=\"79\" ry=\"27\" fill=\"none\" stroke=\"#93ae7c\" stroke-width=\"2\" transform=\"rotate(-26 157 77)\"/><circle cx=\"218\" cy=\"50\" r=\"9\" fill=\"#d5bd88\"/><path d=\"M70 72h17M78 63v18M221 158h12M227 152v12\" stroke=\"#9daf80\" stroke-width=\"3\"/></svg>","<svg class=\"art-illustration\" viewBox=\"0 0 300 195\" aria-hidden=\"true\"><circle cx=\"152\" cy=\"98\" r=\"63\" fill=\"#d0e5f1\"/><ellipse cx=\"151\" cy=\"158\" rx=\"66\" ry=\"9\" fill=\"#c5dde9\"/><path d=\"M127 49h48M135 51v48l-29 45q-6 13 12 13h65q16 0 10-13l-28-45V51\" fill=\"#f5fafc\" stroke=\"#8eaac8\" stroke-width=\"3\"/><path d=\"M126 120l-16 26q-2 7 10 7h61q10 0 8-7l-17-26q-24 11-46 0\" fill=\"#b2c8e8\"/><circle cx=\"144\" cy=\"135\" r=\"5\" fill=\"#f7fcff\"/><circle cx=\"163\" cy=\"126\" r=\"3\" fill=\"#f7fcff\"/><circle cx=\"146\" cy=\"85\" r=\"6\" fill=\"#b1d4dd\"/><circle cx=\"161\" cy=\"66\" r=\"3\" fill=\"#a1c3d4\"/><ellipse cx=\"219\" cy=\"86\" rx=\"25\" ry=\"10\" fill=\"none\" stroke=\"#af9fc7\" stroke-width=\"2\" transform=\"rotate(-45 219 86)\"/><ellipse cx=\"219\" cy=\"86\" rx=\"25\" ry=\"10\" fill=\"none\" stroke=\"#af9fc7\" stroke-width=\"2\" transform=\"rotate(45 219 86)\"/><circle cx=\"219\" cy=\"86\" r=\"4\" fill=\"#b395bc\"/><path d=\"M69 108h16M77 100v16\" stroke=\"#9bb4c9\" stroke-width=\"3\"/></svg>","<svg class=\"art-illustration\" viewBox=\"0 0 300 195\" aria-hidden=\"true\"><circle cx=\"149\" cy=\"100\" r=\"63\" fill=\"#f8dfbc\"/><path d=\"M152 49c-50-7-83 25-74 62 8 34 39 48 66 42 24-5 13-23 25-30 12-7 31 10 40-8 12-26-21-60-57-66Z\" fill=\"#e7ba99\" stroke=\"#cda282\" stroke-width=\"2\"/><ellipse cx=\"132\" cy=\"121\" rx=\"13\" ry=\"9\" fill=\"#fff0dd\" transform=\"rotate(-30 132 121)\"/><circle cx=\"108\" cy=\"85\" r=\"10\" fill=\"#bdacd7\"/><circle cx=\"137\" cy=\"70\" r=\"10\" fill=\"#dc8f8c\"/><circle cx=\"169\" cy=\"78\" r=\"10\" fill=\"#9cbfc1\"/><circle cx=\"186\" cy=\"102\" r=\"9\" fill=\"#e6cc83\"/><path d=\"M184 155l42-90\" stroke=\"#a687b6\" stroke-width=\"9\" stroke-linecap=\"round\"/><path d=\"M223 72l7-20q14-7 9 12l-8 12Z\" fill=\"#9b7d9f\"/><path d=\"M64 77l5-10 5 10 10 4-10 4-5 10-5-10-10-4Z\" fill=\"#dab479\"/><path d=\"M231 135q15 12 6 20t-17-4\" fill=\"none\" stroke=\"#c69caf\" stroke-width=\"3\"/></svg>"];
  // Real approved teachers' classes come first; labelled demo classes fill the remaining cards.
- const picks=CLASSES.filter(c=>c.real).slice(0,4).map(c=>c.id).concat(['c5','c1','c8','c14']).slice(0,4);
+ const picks=CLASSES.filter(c=>c.real).slice(0,4).map(c=>c.id).concat(['c5','c1','c8','c14']).filter(id=>cls(id)).slice(0,4);
  const artFor=(c,i)=>{const s=c.subject.toLowerCase();return artwork[/cod|program|comput/.test(s)?0:/math|algebra|geometr/.test(s)?1:/scien|chem|physic|bio/.test(s)?2:/art|draw|paint|design/.test(s)?3:i%4]};
  return `
  <section class="wrap hero-modern">
@@ -502,7 +502,7 @@ function profile(id){
       <div class="avatar lg" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
       <div><h2 style="margin:0">${esc(t.name)}</h2>
         ${t.real||t.id==="me"?"":`<div class="small muted" style="margin:4px 0">${DEMO} Sample profile that shows how a teacher page looks.</div>`}
-        <div class="muted">${[t.city?"Teaching from "+esc(t.city):"", t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}${schoolTag(t)}</div>
+        <div class="muted">${[t.city?"Teaching from "+esc(t.city):"", t.years?t.years+" years' experience":""].filter(Boolean).join(" · ")}${schoolTag(t)}</div>${trustLine(t)}
         <div>${rv.length?`<span class="stars">${starStr(rating(id))}</span> ${rating(id).toFixed(1)} from ${rv.length} reviews`:"New teacher, no reviews yet"}</div></div>
     </div>
     <div class="cols">
@@ -522,6 +522,7 @@ function profile(id){
             <button class="btn sm" style="margin-top:10px">Post review</button></form>`
           :`<p class="muted small" style="margin:0">Reviews open after you book a lesson with ${esc(t.name.split(" ")[0])}.</p>`}
         </div>
+        ${t.real?reportBox(id):""}
       </div>
     </div>
   </div>`;
@@ -752,11 +753,11 @@ function help(){
   ];
   return `<div class="wrap page"><h2>Help and support</h2>
     <div class="cols"><div>${faq.map(([q,a])=>`<details><summary>${q}</summary><p style="margin:8px 0 0">${a}</p></details>`).join("")}</div>
-    <form class="box" onsubmit="event.preventDefault();this.reset();toast('Message sent. We reply within 24 hours.')">
+    <form class="box" id="helpf" novalidate onsubmit="event.preventDefault();sendSupport(this)">
       <h3>Contact support</h3>
-      <label class="field">Email<input type="email" required autocomplete="email"></label>
-      <label class="field" style="margin-top:8px">Topic<select><option>Booking or payment</option><option>Joining a lesson</option><option>Parent account</option><option>Teaching on SeastackSchool</option><option>Something else</option></select></label>
-      <label class="field" style="margin-top:8px">Message<textarea rows="4" required></textarea></label>
+      <label class="field">Your email, so we can reply<input type="email" name="email" id="hp-email" autocomplete="email"></label>
+      <label class="field" style="margin-top:8px">Topic<select name="topic" id="hp-topic"><option>Booking or payment</option><option>Joining a lesson</option><option>Parent account</option><option>Teaching on SeastackSchool</option><option>Something else</option></select></label>
+      <label class="field" style="margin-top:8px">Message<textarea rows="4" name="message" id="hp-message" maxlength="3000"></textarea></label>
       <button class="btn" style="margin-top:12px">Send message</button>
     </form></div></div>`;
 }
@@ -776,7 +777,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=16"></script>
+<script src="accounts.js?v=17"></script>
 
 </body>
 </html>
