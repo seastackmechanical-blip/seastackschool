@@ -480,7 +480,7 @@ function card(c){
   const t=teacher(c.t), ss=sessions(c), nx=ss.find(s=>s.left>0);
   const left = nx? nx.left : 0;
   return `<article class="listing">
-    <div class="avatar" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
+    ${avatarHtml(t)}
     <div>
       <span class="tag ${c.type}">${typeLabel(c)}</span> ${c.mine?"":DEMO}
       <h3><button onclick="openBooking('${c.id}')">${esc(c.title)}</button></h3>
@@ -501,7 +501,7 @@ function profile(id){
   const rv=reviewsFor(id), booked=S.bookings.some(b=>cls(b.cid)?.t===id);
   return `<div class="wrap profile">
     <div class="profile-head">
-      <div class="avatar lg" style="background:${t.color}" aria-hidden="true">${initials(t.name)}</div>
+      ${avatarHtml(t,true)}
       <div><h2 style="margin:0">${esc(t.name)}</h2>
         ${t.real||t.id==="me"?"":`<div class="small muted" style="margin:4px 0">${DEMO} Sample profile that shows how a teacher page looks.</div>`}
         ${t.headline?`<div><b>${esc(t.headline)}</b></div>`:""}
@@ -780,7 +780,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=22"></script>
+<script src="accounts.js?v=23"></script>
 
 </body>
 </html>

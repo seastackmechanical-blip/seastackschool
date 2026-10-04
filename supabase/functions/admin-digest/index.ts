@@ -17,6 +17,7 @@ const LABELS: Record<string, [string, string]> = {
   hidden_by_school: ["rating hidden by a school", "ratings hidden by a school"],
   reports: ["open report about a teacher", "open reports about teachers"],
   messages: ["unanswered Help message", "unanswered Help messages"],
+  qualifications: ["teacher qualification waiting for you to verify its document", "teacher qualifications waiting for you to verify their documents"],
 };
 
 Deno.serve(async (req: Request) => {
