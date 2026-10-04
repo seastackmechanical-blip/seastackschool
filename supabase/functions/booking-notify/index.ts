@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
   const teacherEmail = tUser.data?.user?.email, learnerEmail = lUser.data?.user?.email;
   const teacherTz = teacher?.timezone || "UTC";
   const learnerTz = typeof body.tz === "string" && body.tz.length <= 64 && caller === b.learner_id ? body.tz : teacherTz;
-  const site = (Deno.env.get("SITE_URL") || "https://seastackmechanical-blip.github.io/seastackschool/").replace(/\/?$/, "/");
+  const site = (Deno.env.get("SITE_URL") || "https://seastackschool.com/").replace(/\/?$/, "/");
   const from = Deno.env.get("EMAIL_FROM") || "SeastackSchool <school@seastackbook.com>";
   const by = b.cancelled_by === b.learner_id ? "the " + (learner?.role === "parent" ? "parent" : "student")
            : b.cancelled_by === c.teacher_id ? "the teacher" : "SeastackSchool";

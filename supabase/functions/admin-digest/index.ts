@@ -41,7 +41,7 @@ Deno.serve(async (req: Request) => {
   const to = (admins ?? []).map((a: { email: string }) => a.email);
   if (!to.length) return json({ ok: false, reason: "no_admins" });
 
-  const site = (Deno.env.get("SITE_URL") || "https://seastackmechanical-blip.github.io/seastackschool/").replace(/\/?$/, "/");
+  const site = (Deno.env.get("SITE_URL") || "https://seastackschool.com/").replace(/\/?$/, "/");
   const from = Deno.env.get("EMAIL_FROM") || "SeastackSchool <school@seastackbook.com>";
   const lines = Object.entries(counts as Record<string, number>)
     .filter(([, n]) => Number(n) > 0)
