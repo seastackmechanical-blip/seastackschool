@@ -11,7 +11,8 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null};
+const CANCELLED = {};   // lesson dates a teacher has cancelled, keyed like BOOKED
 // Demo teachers and classes disappear by themselves once this many real teachers are listed.
 const DEMO_OFF_AT = 3;
 // Schools stay out of the top menu until teachers and families are working well; their pages still exist.
@@ -69,11 +70,13 @@ const slugify = (s,id) => (String(s||"").normalize("NFKD").replace(/[̀-ͯ]/g,""
 /* ---------- data ---------- */
 async function loadPublic(){
   if(!sb) return;
-  const [t,c,n,sch,rv] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name"), sb.from("reviews").select("*").order("updated_at",{ascending:false})]);
+  const [t,c,n,sch,rv,cx] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name"), sb.from("reviews").select("*").order("updated_at",{ascending:false}), sb.from("class_cancellations").select("class_id,starts_at").gt("starts_at", new Date().toISOString())]);
   if(t.error || c.error) return;
   A.schools = sch.data || []; A.reviews = rv.data || [];
   for(const k in BOOKED) delete BOOKED[k];
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
+  for(const k in CANCELLED) delete CANCELLED[k];
+  (cx.data||[]).forEach(x=>{ CANCELLED[x.class_id+"@"+Date.parse(x.starts_at)] = true });
   for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
   const ok = new Set();
   t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,checked:!!x.identity_checked_at,color:"#C9D6F2",
@@ -230,9 +233,9 @@ studio = function(){
   const local = `<p class="small muted">This tool is saved in this browser only for now.</p>`;
   return `<div class="wrap page">
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
-    ${statusBanner()}${teacherSchoolBox()}
+    ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?profileForm()+teacherDocsBox():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?profileForm()+teacherDocsBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
@@ -373,6 +376,39 @@ function teacherBookings(){
 }
 // Attendance: everyone counts as attended unless the teacher says otherwise. The family can dispute a
 // "did not attend" mark, and the system admin's ruling is final.
+// A teacher who is ill or away cancels one lesson date: its bookings are cancelled and it can't be booked.
+function teacherDates(){
+  if(!A.teacher || A.teacher.status!=="approved" || !A.classes.length) return "";
+  const rows=[];
+  A.classes.forEach(x=>{ const c=cls(x.id); if(c) sessions(c).forEach(s=>rows.push({x,c,s})) });
+  rows.sort((a,b)=>a.s.start-b.s.start);
+  const ids=new Set(A.classes.map(c=>c.id)), now=Date.now();
+  const gone=Object.keys(CANCELLED).map(k=>({id:k.split("@")[0],ms:+k.split("@")[1]})).filter(k=>ids.has(k.id) && k.ms>now).sort((a,b)=>a.ms-b.ms);
+  if(!rows.length && !gone.length) return "";
+  return `<h3 style="margin-top:24px">Lesson dates in the next two weeks</h3>
+    <p class="muted small">Ill or away? Cancel a single date. Everyone booked for it has their booking cancelled, and the date can no longer be booked.</p>` +
+    rows.map(({x,c,s})=>{ const k=x.id+"@"+(+s.start), booked=c.cap-s.left;
+      return `<div class="lesson"><div><b>${esc(x.title)}</b><div class="small muted">${fmtDay(s.start)}, ${fmtTime(s.start)} · ${booked} of ${c.cap} booked</div></div>
+        <button class="btn ghost sm" onclick="cancelDate('${x.id}',${+s.start})">${A.cancelDateKey===k?(booked?`Confirm: cancel ${booked} ${booked===1?"booking":"bookings"}`:"Confirm cancel"):"Cancel this date"}</button></div>` }).join("") +
+    gone.map(k=>{ const x=A.classes.find(c=>c.id===k.id), w=new Date(k.ms);
+      return `<div class="lesson"><div><b>${esc(x.title)}</b> <span class="tag bad">Date cancelled</span><div class="small muted">${fmtDay(w)}, ${fmtTime(w)}</div></div>
+        <button class="btn ghost sm" onclick="restoreDate('${k.id}',${k.ms})">Open this date again</button></div>` }).join("");
+}
+async function cancelDate(id, ms){
+  const k=id+"@"+ms;
+  if(A.cancelDateKey!==k){ A.cancelDateKey=k; render(); return }
+  A.cancelDateKey=null;
+  const r = await sb.rpc("cancel_session",{p_class_id:id,p_starts_at:new Date(ms).toISOString()});
+  if(r.error){ toast(r.error.message); render(); return }
+  const ids=r.data||[]; ids.forEach(b=>notifyBooking(b,"cancelled"));
+  await loadMe(); await loadPublic();
+  toast(ids.length ? `Date cancelled, with ${ids.length} ${ids.length===1?"booking":"bookings"}` : "Date cancelled"); render();
+}
+async function restoreDate(id, ms){
+  const r = await sb.rpc("restore_session",{p_class_id:id,p_starts_at:new Date(ms).toISOString()});
+  if(r.error) return toast(r.error.message);
+  await loadPublic(); toast("Date open for booking again. Cancelled bookings are not brought back."); render();
+}
 function teacherPast(){
   const ids=new Set(A.classes.map(c=>c.id)), now=Date.now(), at=b=>Date.parse(b.starts_at);
   const past=A.bookings.filter(b=>ids.has(b.class_id) && b.status==="booked" && at(b)<=now && at(b)>now-45*864e5).sort((x,y)=>at(y)-at(x));
@@ -514,7 +550,7 @@ function accountPage(){
         <p class="small muted" style="margin:10px 0">${parent?"You book lessons for your children from this account.":"You book lessons for yourself from this account."}</p>
         <button class="btn sm">Save name</button>
       </form>
-      ${parent?familyBox():""}
+      ${parent?familyBox():""}${accountSettings()}
     </div><div>
       <div class="box"><h3>My lessons</h3><p class="muted" style="margin:0 0 12px">${(n=>n===1?"1 upcoming lesson.":n+" upcoming lessons.")(A.bookings.filter(b=>b.learner_id===A.user.id && b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length)} Online payment is not open yet, so nothing is charged when you book.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/learning">Open my lessons</a><a class="btn sm ghost" href="#/classes">Find a class</a></div></div>
     </div></div>
@@ -641,6 +677,56 @@ async function bookReal(){
   const who = parent ? (A.children.find(k=>k.id===RB.child)?.first_name||"your child") : (A.learner.full_name||"you");
   await loadMe(); await loadPublic();
   RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
+}
+
+/* ---------- your own account: getting started (teachers), change password, delete account ---------- */
+function teacherChecklist(){
+  const t=A.teacher, cl=A.classes;
+  const items=[
+    [!!(t.full_name.trim() && t.intro.trim() && (t.languages||[]).length), "Fill in your profile: name, introduction and teaching languages", "profile", "Open My profile"],
+    [A.tdocs.length>0 || !!t.identity_checked_at, "Upload an identity document", "profile", "Open My profile"],
+    [cl.length>0, "Create your first class", "list", "Open My classes"],
+    [cl.length>0 && cl.every(c=>c.mode==="in_person" ? !!A.addresses[c.id] : !!A.links[c.id]), "Add a lesson link (online) or address (in person) to every class", "list", "Open My classes"],
+    [t.status==="approved", t.school_id ? "Be approved by your school" : "Be approved by SeastackSchool, which happens after we review your profile", null, ""]
+  ];
+  const done=items.filter(i=>i[0]).length;
+  if(done===items.length) return "";
+  return `<div class="box" style="margin:12px 0"><h3>Getting started: ${done} of ${items.length} done</h3>
+    ${items.map(([ok,text,tab,label])=>`<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:5px 0"><span aria-hidden="true" style="color:${ok?"var(--leaf)":"var(--muted)"};font-weight:700">${ok?"✓":"○"}</span><span style="flex:1;min-width:200px;${ok?"color:var(--muted)":""}">${text}<span class="sr">${ok?" (done)":" (to do)"}</span></span>${!ok&&tab&&TAB!==tab?`<button class="btn ghost sm" onclick="TAB='${tab}';render()">${label}</button>`:""}</div>`).join("")}</div>`;
+}
+function accountSettings(){
+  const what = A.teacher ? "your profile, classes, documents and ratings"
+    : A.school ? "your school's page and documents. Your teachers keep their own accounts but go back to waiting for approval"
+    : A.aff ? "your affiliate link and its history"
+    : A.learner && A.learner.role==="parent" ? "your children's details, your bookings and your ratings" : "your bookings and your ratings";
+  return `<details style="margin-top:16px"><summary>Password and account</summary>
+    <form id="pwf" novalidate onsubmit="event.preventDefault();changePassword(this)" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      <label class="field" style="flex:1;min-width:220px">New password (at least 8 characters)<input name="password" id="pw-new" type="password" autocomplete="new-password"></label>
+      <button class="btn sm">Change password</button></form>
+    <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px"><b>Delete my account</b>
+      <p class="small muted" style="margin:6px 0 10px">This permanently removes your account, including ${what}. It cannot be undone.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="del-confirm" placeholder="Type DELETE to confirm" aria-label="Type DELETE to confirm" autocomplete="off" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn sm ghost" onclick="deleteAccount()">Delete my account</button></div></div>
+  </details>`;
+}
+async function changePassword(f){
+  const v=f.password.value;
+  if(v.length<8) return toast("Choose a password with at least 8 characters");
+  const r = await sb.auth.updateUser({password:v});
+  if(r.error) return toast(r.error.message);
+  f.reset(); toast("Password changed");
+}
+async function deleteAccount(){
+  if(($("#del-confirm")?.value||"").trim()!=="DELETE") return toast("Type DELETE in capitals to confirm");
+  if(A.teacher && A.classes.some(c=>classHasUpcoming(c.id))) return toast("You have upcoming bookings. Cancel those lesson dates first, then delete your account.");
+  // documents are files, so they are removed first; the account and everything else go together
+  try{
+    if(A.teacher && A.tdocs.length) await sb.storage.from("teacher-docs").remove(A.tdocs.map(d=>d.path));
+    if(A.school && A.docs.length) await DOCS().remove(A.docs.map(d=>d.path));
+  }catch(e){}
+  const r = await sb.rpc("delete_my_account");
+  if(r.error) return toast(r.error.message);
+  try{ await sb.auth.signOut({scope:"local"}) }catch(e){}
+  A.mode="signin"; A.msg=""; A.err=""; location.hash="#/"; toast("Your account has been deleted");
 }
 
 /* ---------- trust and safety: identity documents, reports, the Help inbox, what needs the admin ---------- */
@@ -895,6 +981,7 @@ function schoolDash(){
         ${A.docs.length?A.docs.map((d,i)=>`<div class="lesson"><span style="overflow-wrap:anywhere">${d.url?`<a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a>`:esc(d.name)}</span><button class="btn ghost sm" onclick="dropDoc(${i})">${A.removingDoc===d.path?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No documents uploaded yet.</div>`}
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px"><input type="file" id="docfile" accept=".pdf,.jpg,.jpeg,.png" aria-label="Choose a document"><button class="btn sm" id="docbtn" onclick="uploadDoc()">Upload</button></div>
         <p class="small muted" style="margin:8px 0 0">PDF, JPG or PNG, up to 10 MB each, up to 10 files.</p></div>
+      ${accountSettings()}
     </div><div>
       <div class="box"><h3>Your teachers</h3>
         <p class="muted small">Send teachers this link. They create a teacher account through it and appear here for you to approve. ${s.status==="approved"?"":"You can approve them once your school is approved."}</p>
@@ -1063,6 +1150,7 @@ function partnerPage(){
         ${d.referrals.map(r=>`<tr><td>${kinds[r.kind]||"Account"}</td><td>${r.joined_at?new Date(r.joined_at).toLocaleDateString():""}</td><td><span class="tag ${r.active?"ok":"group"}">${r.active?"Active":"Signed up"}</span></td></tr>`).join("")}</tbody></table></div>`
         :`<p class="muted" style="margin:0">No one has signed up through your link yet.</p>`}
         <p class="small muted" style="margin:10px 0 0">A referral is active once a teacher is approved and has listed a class, or a student or parent has booked a lesson. Names are not shown, to protect families' privacy.</p></div>
+      ${accountSettings()}
     </div><div>
       <div class="box"><h3>Your numbers</h3>
         <table style="min-width:0"><tbody>

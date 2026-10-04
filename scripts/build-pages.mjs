@@ -17,6 +17,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 // Must stay identical to slugify() in accounts.js, which builds the "page to share" links.
 const slugify = (s, id) => (String(s || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "page") + "-" + String(id).slice(0, 8);
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+let cancelled = new Set();   // lesson dates teachers have cancelled, as "<class id>@<start in ms>"
 const listWords = (a) => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
 const money = (n) => "$" + Number(n).toFixed(Number(n) % 1 ? 2 : 0);
 const ages = (c) => c.age_max >= 99 ? `Ages ${c.age_min}+` : `Ages ${c.age_min}–${c.age_max}`;
@@ -40,7 +41,7 @@ function nextSessions(c, tz, n = 4) {
     const d = new Date(base.getTime() + i * 864e5);
     if (!c.days.includes(d.getUTCDay())) continue;
     const start = Math.round(d.getTime() + (hour - tzOffsetAt(tz, d.getTime() + hour * 36e5)) * 36e5);
-    if (start > now + 30 * 6e4) res.push(new Date(start).toISOString());
+    if (start > now + 30 * 6e4 && !cancelled.has(c.id + "@" + start)) res.push(new Date(start).toISOString());
   }
   return res;
 }
@@ -137,12 +138,14 @@ ${track(trackPath)}
 }
 
 /* ---------- build ---------- */
-const [teachers, classes, schools, reviews] = await Promise.all([
+const [teachers, classes, schools, reviews, cancels] = await Promise.all([
   get("teachers", "select=*&status=eq.approved&order=created_at"),
   get("classes", "select=*&order=created_at"),
   get("schools", "select=*&status=eq.approved&order=name"),
   get("reviews", "select=*&order=updated_at.desc"),
+  get("class_cancellations", "select=class_id,starts_at"),
 ]);
+cancelled = new Set(cancels.map((x) => x.class_id + "@" + Date.parse(x.starts_at)));
 const tById = new Map(teachers.map((t) => [t.id, t]));
 const live = classes.filter((c) => tById.has(c.teacher_id));
 const tSlug = (t) => slugify(t.full_name, t.id), cSlug = (c) => slugify(c.title, c.id);

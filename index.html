@@ -389,6 +389,7 @@ function sessions(c){
     const startUTC = Math.round(d.getTime() + (c.hour - off)*36e5);
     if(startUTC < now + 30*6e4 || startUTC > now + 14*864e5) continue;
     const key = c.id+"@"+startUTC;
+    if(c.real && CANCELLED[key]) continue;   // the teacher cancelled this date
     const seeded = c.real ? (BOOKED[key]||0) : c.type==="group" ? (hash(key)%(c.cap)) : (hash(key)%4===0?1:0);
     const mine = c.real ? 0 : S.bookings.filter(b=>b.key===key).length;
     out.push({key,start:new Date(startUTC),left:Math.max(0,c.cap-seeded-mine)});
@@ -777,7 +778,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=18"></script>
+<script src="accounts.js?v=19"></script>
 
 </body>
 </html>
