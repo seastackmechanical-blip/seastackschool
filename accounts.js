@@ -216,7 +216,7 @@ studio = function(){
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     ${statusBanner()}${teacherSchoolBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?profileForm():TAB==="list"?listings():TAB==="bookings"?teacherBookings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?profileForm():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherPast():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
@@ -300,6 +300,29 @@ function teacherBookings(){
       ${list.map(b=>`<div class="lesson" style="margin:8px 0 0"><span>${esc(b.attendee_name)}</span><button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button></div>`).join("")}</div>`;
   }).join("");
 }
+// Attendance: everyone counts as attended unless the teacher says otherwise. The family can dispute a
+// "did not attend" mark, and the system admin's ruling is final.
+function teacherPast(){
+  const ids=new Set(A.classes.map(c=>c.id)), now=Date.now(), at=b=>Date.parse(b.starts_at);
+  const past=A.bookings.filter(b=>ids.has(b.class_id) && b.status==="booked" && at(b)<=now && at(b)>now-45*864e5).sort((x,y)=>at(y)-at(x));
+  if(!past.length) return "";
+  return `<h3 style="margin-top:24px">Lessons that have started</h3>
+    <p class="muted small">Everyone counts as attended unless you mark "Did not attend". Someone marked as not attending cannot rate you for that lesson, and can ask SeastackSchool to review the mark. Shows the last 45 days.</p>` +
+    past.map(b=>{ const c=A.classes.find(x=>x.id===b.class_id), w=new Date(b.starts_at), no=b.attendance==="no_show";
+      return `<div class="lesson"><div><b>${esc(b.attendee_name)}</b> <span class="tag ${no?"bad":"ok"}">${no?"Did not attend":"Attended"}</span>
+        <div class="small muted">${esc(c.title)} · ${fmtDay(w)}, ${fmtTime(w)}${b.attendance_disputed?" · the family says this is wrong; SeastackSchool will review it":""}</div></div>
+        ${b.attendance_locked?`<span class="small muted">Decided by SeastackSchool</span>`:`<button class="btn sm ghost" onclick="markAttendance('${b.id}','${no?"attended":"no_show"}')">${no?"Mark as attended":"Did not attend"}</button>`}</div>` }).join("");
+}
+async function markAttendance(id,value){
+  const r = await sb.rpc("mark_attendance",{p_booking_id:id,p_value:value});
+  if(r.error){ toast(r.error.message); return }
+  await loadMe(); toast(value==="no_show"?"Marked as did not attend":"Marked as attended"); render();
+}
+async function disputeAttendance(id){
+  const r = await sb.rpc("dispute_attendance",{p_booking_id:id});
+  if(r.error){ toast(r.error.message); return }
+  await loadMe(); toast("Sent to SeastackSchool to review"); render();
+}
 startTeaching = function(){ A.kind="teacher"; if(!A.user){ A.mode="signup"; A.err=""; A.msg="" } TAB = A.teacher && A.teacher.full_name.trim() ? "list" : "profile" };
 
 /* ---------- admin: manage teachers ---------- */
@@ -368,22 +391,23 @@ function adminLearners(){
 }
 function adminBookings(){
   const rows=A.brows||[], now=Date.now(), at=b=>Date.parse(b.starts_at);
-  const sets={upcoming:rows.filter(b=>b.status==="booked" && at(b)>now).sort((x,y)=>at(x)-at(y)), past:rows.filter(b=>b.status==="booked" && at(b)<=now), cancelled:rows.filter(b=>b.status==="cancelled"), all:rows};
+  const sets={upcoming:rows.filter(b=>b.status==="booked" && at(b)>now).sort((x,y)=>at(x)-at(y)), past:rows.filter(b=>b.status==="booked" && at(b)<=now), cancelled:rows.filter(b=>b.status==="cancelled"), all:rows, disputed:rows.filter(b=>b.attendance_disputed)};
   const list=sets[A.bfilter]||sets.upcoming;
   const chip=(k,l)=>`<button class="chip" aria-pressed="${A.bfilter===k}" onclick="A.bfilter='${k}';render()">${l} (${sets[k].length})</button>`;
   const who={student:"the student",parent:"the parent",teacher:"the teacher",admin:"an admin"};
   return `<div class="wrap page">
     ${adminHead()}
-    <p class="muted">Every lesson booked on SeastackSchool. Times are shown in your time zone (${esc(TZ)}). Cancelling a booking here frees the seat and emails the teacher and the family.</p>
-    <div class="chips" style="margin-bottom:14px">${chip("upcoming","Upcoming")}${chip("past","Past")}${chip("cancelled","Cancelled")}${chip("all","All")}</div>
+    <p class="muted">Every lesson booked on SeastackSchool. Times are shown in your time zone (${esc(TZ)}). Cancelling a booking here frees the seat and emails the teacher and the family. For a lesson that has started you can set the attendance; your choice is final and overrides the teacher's.</p>
+    <div class="chips" style="margin-bottom:14px">${chip("upcoming","Upcoming")}${chip("past","Past")}${chip("cancelled","Cancelled")}${chip("all","All")}${chip("disputed","Attendance disputed")}</div>
     ${list.length?`<div class="scroll"><table class="admin" style="min-width:820px"><thead><tr><th>Lesson time</th><th>Class</th><th>For</th><th>Booked by</th><th>Status</th><th>Action</th></tr></thead><tbody>
     ${list.map(b=>{ const when=new Date(b.starts_at), upcoming=b.status==="booked" && at(b)>now; return `<tr>
       <td><b>${fmtDay(when)}</b><div class="small">${fmtTime(when)}</div></td>
       <td><b>${esc(b.class_title)}</b><div class="small">${esc(b.teacher_name||"(no name)")} · ${esc(b.teacher_email)}</div></td>
       <td>${esc(b.attendee_name)}</td>
       <td>${esc(b.learner_name||"(no name)")} <span class="small muted">(${b.learner_role})</span><div class="small">${esc(b.learner_email)}</div><div class="small muted">Booked ${new Date(b.created_at).toLocaleDateString()}</div></td>
-      <td><span class="tag ${b.status==="cancelled"?"bad":upcoming?"ok":"group"}">${b.status==="cancelled"?"Cancelled":upcoming?"Booked":"Took place"}</span>${b.status==="cancelled"?`<div class="small muted" style="margin-top:4px">by ${who[b.cancelled_by_kind]||"someone"}, ${new Date(b.cancelled_at).toLocaleDateString()}</div>`:""}${b.emailed?"":`<div class="small muted" style="margin-top:4px">No booking email sent</div>`}</td>
-      <td>${upcoming?`<button class="btn sm ghost" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button>`:""}</td>
+      <td><span class="tag ${b.status==="cancelled"?"bad":upcoming?"ok":"group"}">${b.status==="cancelled"?"Cancelled":upcoming?"Booked":b.attendance==="no_show"?"Did not attend":"Took place"}</span>${b.attendance_disputed?`<div class="small" style="color:var(--rose);margin-top:4px">The family disputes this</div>`:""}${b.attendance_locked?`<div class="small muted" style="margin-top:4px">Attendance decided by you</div>`:""}${b.status==="cancelled"?`<div class="small muted" style="margin-top:4px">by ${who[b.cancelled_by_kind]||"someone"}, ${new Date(b.cancelled_at).toLocaleDateString()}</div>`:""}${b.emailed?"":`<div class="small muted" style="margin-top:4px">No booking email sent</div>`}</td>
+      <td>${upcoming?`<button class="btn sm ghost" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button>`
+          :b.status==="booked"?`<div class="acts" style="margin:0"><button class="btn sm ghost" onclick="markAttendance('${b.id}','attended')">Attended</button><button class="btn sm ghost" onclick="markAttendance('${b.id}','no_show')">Did not attend</button></div>`:""}</td>
     </tr>` }).join("")}</tbody></table></div>${rows.length>=500?`<p class="small muted">Showing the 500 most recent bookings.</p>`:""}`
     :`<div class="empty">${rows.length?"No bookings in this list.":"No lessons have been booked yet."}</div>`}
   </div>`;
@@ -460,7 +484,11 @@ function bookingRow(b, upcoming){
   return `<div class="lesson"><div><b>${c?esc(c.title):"Class no longer listed"}</b>
     <div class="small muted">${fmtDay(when)}, ${fmtTime(when)} (your time)${t?" · with "+esc(t.name):""} · for ${esc(b.attendee_name)}</div>
     ${upcoming && !link?`<div class="small muted">The teacher hasn't added a lesson link yet. It will appear here when they do.</div>`:""}</div>
-    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Join lesson</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:(b.status==="booked" && t?`<a class="btn ghost sm" href="#/teacher/${t.id}">Rate this teacher</a>`:"")}</div>`;
+    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Join lesson</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel"}</button></div>`:(b.status!=="booked" || !t ? ""
+      : b.attendance!=="no_show" ? `<a class="btn ghost sm" href="#/teacher/${t.id}">Rate this teacher</a>`
+      : b.attendance_locked ? `<span class="small muted">Marked as not attended</span>`
+      : b.attendance_disputed ? `<span class="small muted">Marked as not attended. Sent to SeastackSchool to review.</span>`
+      : `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="small muted">The teacher marked this lesson as not attended.</span><button class="btn ghost sm" onclick="disputeAttendance('${b.id}')">This is wrong</button></div>`)}</div>`;
 }
 function realLessons(){
   const now=Date.now(), mine=A.bookings.filter(b=>b.learner_id===A.user.id), end=b=>Date.parse(b.starts_at)+90*6e4;
@@ -547,8 +575,8 @@ function realReviewBox(tid){
   if(!A.user) return p(`Only students and parents who have finished a lesson with ${first} can rate them. <a href="#/account">Sign in</a>`);
   if(!A.learner) return p(`Only students and parents who have finished a lesson with ${first} can rate them.`);
   // the lesson must have finished, the same rule the database enforces
-  const had=A.bookings.some(b=>{ const c=cls(b.class_id); return b.learner_id===A.user.id && b.status==="booked" && c && c.t===tid && Date.parse(b.starts_at)+c.mins*6e4<=Date.now() });
-  if(!had) return p(`You can rate ${first} after you've finished a lesson with them.`);
+  const had=A.bookings.some(b=>{ const c=cls(b.class_id); return b.learner_id===A.user.id && b.status==="booked" && b.attendance!=="no_show" && c && c.t===tid && Date.parse(b.starts_at)+c.mins*6e4<=Date.now() });
+  if(!had) return p(`You can rate ${first} after you've attended and finished a lesson with them.`);
   const mine=A.reviews.find(r=>r.teacher_id===tid && r.learner_id===A.user.id);
   return `<form id="revf" novalidate onsubmit="event.preventDefault();submitReview('${tid}',this)">
     <label class="field">Your rating<select name="stars" id="rv-stars">${[5,4,3,2,1].map(n=>`<option value="${n}" ${mine&&mine.stars===n?"selected":""}>${n} ${n===1?"star":"stars"}</option>`).join("")}</select></label>
