@@ -230,6 +230,8 @@ body{background:#fffdf8;color:#282748}::selection{background:#ded2ff;color:#3027
 .err{color:#b23a52}
 @media(max-width:1050px){.hero-modern h1{font-size:clamp(44px,8vw,65px)}}
 input[type=file]{max-width:100%;min-width:0}
+.filter-body{display:flex;flex-direction:column;gap:14px}.filter-toggle{display:none;align-self:flex-start}
+@media (max-width:860px){.filter-toggle{display:inline-flex}.filters:not(.open) .filter-body{display:none}.browse{gap:16px}}
 </style>
 </head>
 <body>
@@ -245,7 +247,7 @@ input[type=file]{max-width:100%;min-width:0}
       <a href="#/help" data-r="help">Help</a>
     </nav>
     <a class="btn teach-nav" href="#/studio" onclick="startTeaching()">Start teaching ↗</a>
-    <label class="role small">
+    <label class="role small" style="display:none">
       <span class="sr">Viewing as</span>
       <select id="role" aria-label="Viewing as">
         <option value="learner">Learner</option>
@@ -346,7 +348,7 @@ const S = {
   role: store("role") || "learner",
   bookings: store("bookings") || [],
   reviews: store("reviews") || [],
-  children: store("children") || [{id:"k1",name:"Mia",age:9}],
+  children: [],
   plans: store("plans") || [
     {id:"p1",day:0,title:"Algebra: linear equations",note:"Warm-up quiz, worked examples, exit ticket"},
     {id:"p2",day:2,title:"Graphing lines",note:"Desmos activity in breakout groups"},
@@ -430,23 +432,27 @@ function home(){
 }
 
 function optionList(vals, cur, any){ return `<option value="">${any}</option>` + vals.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("") }
+let FOPEN=false;   // on phones the filters are folded away until asked for
 function browse(){
+  const nf=Object.keys(S.filters).filter(k=>k!=="q" && S.filters[k]).length;
   const F=S.filters, subjects=[...new Set(allClasses().map(c=>c.subject))].sort(), langs=[...new Set(allClasses().map(c=>c.lang))].sort();
   const chip=(k,v,l)=>`<button class="chip" aria-pressed="${F[k]===v}" onclick="S.filters.${k}=S.filters.${k}==='${v}'?'':'${v}';render()">${l}</button>`;
   return `<div class="wrap browse">
-    <aside class="filters" aria-label="Filters">
-      <h3>Filter</h3>
-      <label class="field">Show times in<select class="tzpick" id="tzfilter" onchange="setTZ(this.value)">${tzOptions()}</select></label>
+    <aside class="filters${FOPEN?" open":""}" aria-label="Filters">
       <label class="field">Search<input value="${esc(F.q)}" oninput="S.filters.q=this.value;renderResults()" placeholder="Subject, teacher, topic"></label>
-      <label class="field">Subject<select onchange="S.filters.subject=this.value;renderResults()">${optionList(subjects,F.subject,"Any subject")}</select></label>
-      <label class="field">Teaching language<select onchange="S.filters.lang=this.value;renderResults()">${optionList(langs,F.lang,"Any language")}</select></label>
-      <label class="field">Learner's age<input type="number" min="3" max="99" value="${esc(F.age)}" oninput="S.filters.age=this.value;renderResults()" placeholder="e.g. 9"></label>
-      <label class="field">Highest price per lesson (USD)<input type="number" min="1" value="${esc(F.price)}" oninput="S.filters.price=this.value;renderResults()" placeholder="e.g. 20"></label>
-      <label class="field">Level<select onchange="S.filters.level=this.value;renderResults()">${optionList(["Beginner","Intermediate","Advanced"],F.level,"Any level")}</select></label>
-      <div class="field">Class type<div class="chips">${chip("type","private","Private lesson")}${chip("type","group","Small group")}</div></div>
-      <div class="field">Where<div class="chips">${chip("mode","online","Online")}${chip("mode","in_person","In person")}</div></div>
-      <div class="field">When (your time)<div class="chips">${chip("when","morning","Mornings")}${chip("when","afternoon","Afternoons")}${chip("when","evening","Evenings")}${chip("when","weekend","Weekends")}</div></div>
-      <button class="btn ghost sm" onclick="S.filters={q:'',subject:'',lang:'',age:'',level:'',type:'',when:'',price:''};render()">Clear filters</button>
+      <button class="btn ghost sm filter-toggle" aria-expanded="${FOPEN}" onclick="FOPEN=!FOPEN;render()">${FOPEN?"Hide filters":"Filters"+(nf?" ("+nf+" on)":"")}</button>
+      <div class="filter-body">
+        <label class="field">Show times in<select class="tzpick" id="tzfilter" onchange="setTZ(this.value)">${tzOptions()}</select></label>
+        <label class="field">Subject<select onchange="S.filters.subject=this.value;renderResults()">${optionList(subjects,F.subject,"Any subject")}</select></label>
+        <label class="field">Teaching language<select onchange="S.filters.lang=this.value;renderResults()">${optionList(langs,F.lang,"Any language")}</select></label>
+        <label class="field">Learner's age<input type="number" min="3" max="99" value="${esc(F.age)}" oninput="S.filters.age=this.value;renderResults()" placeholder="e.g. 9"></label>
+        <label class="field">Highest price per lesson (USD)<input type="number" min="1" value="${esc(F.price)}" oninput="S.filters.price=this.value;renderResults()" placeholder="e.g. 20"></label>
+        <label class="field">Level<select onchange="S.filters.level=this.value;renderResults()">${optionList(["Beginner","Intermediate","Advanced"],F.level,"Any level")}</select></label>
+        <div class="field">Class type<div class="chips">${chip("type","private","Private lesson")}${chip("type","group","Small group")}</div></div>
+        <div class="field">Where<div class="chips">${chip("mode","online","Online")}${chip("mode","in_person","In person")}</div></div>
+        <div class="field">When (your time)<div class="chips">${chip("when","morning","Mornings")}${chip("when","afternoon","Afternoons")}${chip("when","evening","Evenings")}${chip("when","weekend","Weekends")}</div></div>
+        <button class="btn ghost sm" style="align-self:flex-start" onclick="S.filters={q:'',subject:'',lang:'',age:'',level:'',type:'',when:'',price:'',mode:''};render()">Clear filters</button>
+      </div>
     </aside>
     <section id="results"></section>
   </div>`;
@@ -491,7 +497,7 @@ function card(c){
     <div class="price">
       <b>${money(c.price)}</b><span class="small muted">per lesson</span>
       <div class="places ${left<=2?"low":""}">${nx?(c.type==="private"?"Available":left+" of "+c.cap+" places left"):"Full"}</div>
-      <button class="btn sm" style="margin-top:8px" onclick="openBooking('${c.id}')" ${nx?"":"disabled"}>Book</button>
+      <button class="btn sm" style="margin-top:8px" onclick="openBooking('${c.id}')" ${nx||!c.real?"":"disabled"}>${c.real?"Book":"Preview"}</button>
     </div>
   </article>`;
 }
@@ -538,95 +544,21 @@ function openBooking(cid,key){
   const c=cls(cid); BK={cid,key:key||null,step:"slot",learner:""}; showBooking(); $("#dlg").showModal();
 }
 function showBooking(){
-  const c=cls(BK.cid), t=teacher(c.t), ss=sessions(c), body=$("#dlgBody");
-  const young = c.ages[1] < 13;
-  if(BK.step==="slot"){
-    body.innerHTML = `<div class="dlg-head"><div><span class="tag ${c.type}">${typeLabel(c)}</span>${c.mine?"":" "+DEMO}<h3 style="margin-top:6px">${esc(c.title)}</h3>
+  const c=cls(BK.cid), t=teacher(c.t), ss=sessions(c).slice(0,6), body=$("#dlgBody");
+  body.innerHTML = `<div class="dlg-head"><div><span class="tag ${c.type}">${typeLabel(c)}</span> ${DEMO}<h3 style="margin-top:6px">${esc(c.title)}</h3>
       <div class="small">with <a href="#/teacher/${t.id}" onclick="$('#dlg').close()">${esc(t.name)}</a> · ${c.mins} min · ${money(c.price)} · ${ageLabel(c.ages)}</div></div>
       <button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
-      <p class="small muted" style="margin-top:12px">Times are shown in your time zone (${esc(TZ)}). ${esc(t.name.split(" ")[0])} teaches from ${esc(t.city)}.</p>
-      <div class="slots" role="group" aria-label="Choose a time">
-        ${ss.map(s=>`<button class="slot" aria-pressed="${BK.key===s.key}" ${s.left?"":"disabled"} onclick="BK.key='${s.key}';showBooking()">
-          <b>${fmtDay(s.start)}</b>${fmtTime(s.start)}<div class="small ${s.left<=2&&s.left?"places low":"muted"}">${s.left?(c.type==="private"?"Open":s.left+" places left"):"Full"}</div></button>`).join("") || "<p>No open times.</p>"}
-      </div>
-      ${S.role==="teacher" ? `<div class="notice">You're viewing as a teacher. To book this class: <button class="btn sm ghost" onclick="bookAs('learner')">Book for myself</button> <button class="btn sm ghost" onclick="bookAs('parent')">Book for my child</button></div>`
-      : `<div class="field" style="margin:12px 0">Who is this lesson for?<div class="chips">
-          <button class="chip" aria-pressed="${S.role==="learner"}" ${young?"disabled":""} onclick="bookAs('learner')">Myself</button>
-          <button class="chip" aria-pressed="${S.role==="parent"}" onclick="bookAs('parent')">My child</button></div>
-          ${young?`<span class="small muted">This class is for children under 13, so a parent books it for their child.</span>`:""}</div>`}
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
-        <button class="btn" ${BK.key && S.role!=="teacher" && !(young&&S.role==="learner") ?"":"disabled"} onclick="BK.step='pay';showBooking()">Continue to payment</button></div>`;
-  } else if(BK.step==="pay"){
-    const s=ss.find(x=>x.key===BK.key);
-    body.innerHTML = `<div class="dlg-head"><h3>Book and pay</h3><button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
-      <div class="box" style="margin:12px 0"><b>${esc(c.title)}</b><div class="small">${fmtDay(s.start)}, ${fmtTime(s.start)} (your time) · ${c.mins} min with ${esc(t.name)}</div><div style="margin-top:6px">Total <b>${money(c.price)}</b></div></div>
-      <form id="payf" onsubmit="event.preventDefault();pay(this)">
-        ${S.role==="parent" ? (S.children.length ? `<label class="field">Which child is this lesson for?<select name="learner" required>${S.children.map(k=>`<option value="${k.id}">${esc(k.name)}, ${k.age}</option>`).join("")}</select></label>
-          <p class="small muted" style="margin:4px 0 12px">You're booking as a parent. Manage children in <a href="#/learning" onclick="$('#dlg').close()">My lessons</a>.</p>`
-          : `<div class="row" style="margin-bottom:12px"><label class="field">Child's first name<input name="cname" required></label><label class="field">Child's age<input name="cage" type="number" min="3" max="17" required></label></div>`)
-          : `<label class="field" style="margin-bottom:12px">Your name (you're booking for yourself)<input name="lname" required autocomplete="name"></label>`}
-        <div class="row">
-          <label class="field" style="grid-column:1/-1">Card number<input name="card" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" required></label>
-          <label class="field">Expiry<input name="exp" placeholder="MM/YY" autocomplete="cc-exp" required></label>
-          <label class="field">CVC<input name="cvc" inputmode="numeric" placeholder="123" autocomplete="cc-csc" required></label>
-        </div>
-        <p class="small muted">Demo checkout: any 16-digit number works and nothing is charged.</p>
-        <div class="err" id="perr"></div>
-        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px">
-          <button type="button" class="btn ghost" onclick="BK.step='slot';showBooking()">Back</button>
-          <button class="btn">Pay ${money(c.price)}</button></div>
-      </form>`;
-  } else {
-    const b=S.bookings.find(x=>x.id===BK.bid);
-    body.innerHTML = `<div class="dlg-head"><h3>You're booked</h3><button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button></div>
-      <div class="ok"><b>${esc(c.title)}</b><div>${fmtDay(new Date(b.start))}, ${fmtTime(new Date(b.start))} · for ${esc(b.who)}</div></div>
-      <p style="margin-top:14px">Your lesson link:</p>
-      <div class="linkbox"><span>${esc(b.link)}</span></div>
-      <p class="small muted">It's also saved in My lessons. The Join button opens 10 minutes before the start.</p>
-      <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" onclick="navigator.clipboard?.writeText('${b.link}').then(()=>toast('Link copied'),()=>toast('Copy the link from the box'))">Copy link</button><a class="btn" href="#/learning" onclick="$('#dlg').close()">Go to My lessons</a></div>`;
-  }
-}
-function pay(f){
-  const card=f.card.value.replace(/\s/g,""), exp=f.exp.value.trim(), cvc=f.cvc.value.trim(), err=$("#perr");
-  if(!/^\d{16}$/.test(card)) return err.textContent="Card number needs 16 digits.";
-  if(!/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp)) return err.textContent="Expiry should look like 08/28.";
-  if(!/^\d{3,4}$/.test(cvc)) return err.textContent="CVC is the 3 or 4 digits on the back of the card.";
-  const c=cls(BK.cid), start=+BK.key.split("@")[1];
-  if(!sessions(c).find(s=>s.key===BK.key)?.left) return err.textContent="That time just filled up. Go back and choose another.";
-  let who;
-  if(S.role==="parent"){
-    if(f.learner) who = S.children.find(k=>k.id===f.learner.value)?.name || "Child";
-    else { const k={id:uid(),name:f.cname.value.trim(),age:+f.cage.value}; S.children.push(k); who=k.name }
-  } else who = f.lname.value.trim();
-  const id=uid();
-  S.bookings.push({id,cid:c.id,key:BK.key,start,who,paid:c.price,link:`https://class.seastackschool.com/join/${id}`,parent:S.role==="parent"});
-  save(); BK.step="done"; BK.bid=id; toast("Booked and paid"); showBooking();
+    <div class="notice" style="margin-top:12px">This is a sample class that shows how SeastackSchool works. It can't be booked.</div>
+    <p class="small muted">Example lesson times, shown in your time zone (${esc(TZ)}).</p>
+    <div class="slots">${ss.map(s=>`<div class="slot" style="cursor:default"><b>${fmtDay(s.start)}</b>${fmtTime(s.start)}</div>`).join("") || "<p>No example times.</p>"}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="$('#dlg').close()">Close</button></div>`;
 }
 
 /* ---------- my lessons + family ---------- */
 function learning(){
-  const now=Date.now(), mine=S.bookings.slice().sort((a,b)=>a.start-b.start);
-  const up=mine.filter(b=>b.start+90*6e4>now), past=mine.filter(b=>b.start+90*6e4<=now);
-  const row=b=>{const c=cls(b.cid),t=teacher(c.t),open=now>=b.start-10*6e4;return `<div class="lesson">
-    <div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(new Date(b.start))}, ${fmtTime(new Date(b.start))} · with ${esc(t.name)} · for ${esc(b.who)}</div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn ghost sm" href="#/teacher/${t.id}">Review teacher</a>
-    <button class="btn sm" onclick="joinLesson('${b.id}')" ${open?"":"title='Opens 10 minutes before the start'"}>${open?"Join lesson":"Join (opens soon)"}</button>
-    <button class="btn ghost sm" onclick="cancelB('${b.id}')">${CANCEL===b.id?"Confirm cancel":"Cancel"}</button></div></div>`};
-  return `<div class="wrap page">
-    <h2>My lessons</h2>
-    ${up.length? up.map(row).join("") : `<div class="empty"><h3>No lessons booked yet</h3><p class="muted">Find a class that fits your week.</p><a class="btn" href="#/classes">Find classes</a></div>`}
-    ${past.length?`<h3 style="margin-top:24px">Past lessons</h3>${past.map(row).join("")}`:""}
-    <div class="box" style="margin-top:28px">
-      <h3>Family</h3>
-      <p class="muted small">Parent accounts manage bookings for learners under 13. Children don't need their own email or payment details.</p>
-      ${S.role!=="parent"?`<p><button class="btn sm ghost" onclick="setRole('parent')">Switch to parent account</button></p>`:""}
-      <div class="list" style="margin:10px 0">${S.children.map(k=>`<div class="lesson" style="margin:0"><span><b>${esc(k.name)}</b>, age ${k.age}</span><button class="btn ghost sm" onclick="S.children=S.children.filter(x=>x.id!=='${k.id}');save();render()">Remove</button></div>`).join("")}</div>
-      <form class="row" onsubmit="event.preventDefault();S.children.push({id:uid(),name:this.n.value.trim(),age:+this.a.value});save();render();toast('Child added')">
-        <label class="field">Child's first name<input name="n" required></label>
-        <label class="field">Age<input name="a" type="number" min="3" max="17" required></label>
-        <button class="btn sm" style="align-self:end">Add child</button>
-      </form>
-    </div>
+  return `<div class="wrap page"><h2>My lessons</h2>
+    <div class="empty"><h3>Sign in to see your lessons</h3><p class="muted">Your booked lessons and your family details are kept in your account.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><a class="btn" href="#/account">Sign in</a><a class="btn ghost" href="#/classes">Find classes</a></div></div>
   </div>`;
 }
 function joinLesson(id){
@@ -780,7 +712,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=23"></script>
+<script src="accounts.js?v=24"></script>
 
 </body>
 </html>

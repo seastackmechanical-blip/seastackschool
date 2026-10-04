@@ -321,6 +321,14 @@ async function adminDropPhoto(id, file){
 }
 
 /* ---------- sign in / sign up ---------- */
+// Coming in through the teacher studio, the school page or the affiliate page preselects that kind of account.
+// A kind chosen by a link (Register a school, Become an affiliate) or by hand is left alone.
+function kindFor(route, kind){
+  if(A.kindRoute===route) return;
+  A.kindRoute=route;
+  if(kind){ A.kind=kind; A.autoKind=kind }
+  else { if(A.autoKind && A.kind===A.autoKind) A.kind = schoolCodeFromLink() ? "teacher" : "student"; A.autoKind=null }
+}
 function authPage(){
   const up=A.mode==="signup", fg=A.mode==="forgot";
   const sw = m => `A.mode='${m}';A.err='';A.msg='';render()`;
@@ -398,11 +406,11 @@ async function signOut(){ await sb.auth.signOut(); A.mode="signin"; A.msg=""; A.
 studio = function(){
   if(!sb) return `<div class="wrap page"><h2>Teacher studio</h2><div class="notice">Teacher accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
   if(A.recovery) return newPasswordPage();
-  if(!A.user) return authPage();
+  if(!A.user){ kindFor("studio","teacher"); return authPage() }
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.teacher) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     <div class="notice">${A.admin?`This is an admin account, so it has no teacher profile. <a href="#/admin">Manage teachers</a>`:A.learner?`This is a ${A.learner.role} account, so it has no teacher studio. To teach, create a separate teacher account with a different email. <a href="#/account">Open my account</a>`:"This account has no teacher profile."}</div></div>`;
-  const tabs=[["profile","My profile"],["list","My classes"],["bookings","Bookings"],["plan","Weekly planner"],["grades","Students & grades"],["res","Resources"]];
+  const tabs=[["profile","My profile"],["list","My classes"],["bookings","Bookings"]];
   if(!tabs.some(t=>t[0]===TAB)) TAB="profile";
   const local = `<p class="small muted">This tool is saved in this browser only for now.</p>`;
   return `<div class="wrap page">
@@ -725,7 +733,7 @@ async function setLearnerStatus(id,status){
 function accountPage(){
   if(!sb) return `<div class="wrap page"><h2>My account</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
   if(A.recovery) return newPasswordPage();
-  if(!A.user) return authPage();
+  if(!A.user){ kindFor("account",null); return authPage() }
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.learner) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">My account</h2>${who}</div>
     <div class="notice">${A.teacher?`You're signed in with a teacher account. <a href="#/studio">Open the teacher studio</a>`:A.school?`You're signed in with a school account. <a href="#/myschool">Open my school</a>`:A.aff?`You're signed in with an affiliate account. <a href="#/partner">Open the affiliate dashboard</a>`:A.admin?`You're signed in with the admin account. <a href="#/admin">Manage accounts</a>`:"This account has no profile yet."}</div></div>`;
@@ -814,7 +822,13 @@ async function dropChild(id){
 }
 // My lessons: a signed-in student or parent manages family in their account, not in this browser.
 const baseLearning = learning;
-learning = function(){ return A.learner ? realLessons() : baseLearning() };
+learning = function(){
+  if(A.learner) return realLessons();
+  if(!A.user) return `<div class="wrap page"><h2>My lessons</h2>
+    <div class="empty"><h3>Sign in to see your lessons</h3><p class="muted">Your booked lessons and your family details are kept in your student or parent account.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><a class="btn" href="#/account" onclick="A.mode='signin';A.err='';A.msg='';setTimeout(render,0)">Sign in</a><a class="btn ghost" href="#/account" onclick="A.mode='signup';A.kind='student';A.err='';A.msg='';setTimeout(render,0)">Create a free account</a></div></div></div>`;
+  return `<div class="wrap page"><h2>My lessons</h2><div class="notice">${A.teacher?`You're signed in with a teacher account. Bookings in your classes are in the <a href="#/studio">Teacher studio</a>.`:"Lessons are booked from a student or parent account. This account is a different type, so it has no lessons."}</div></div>`;
+};
 function bookingRow(b, upcoming){
   const c=cls(b.class_id), t=c?teacher(c.t):null, when=new Date(b.starts_at), link=A.links[b.class_id], inPerson=!!c && c.mode==="in_person", addr=A.addresses[b.class_id];
   return `<div class="lesson"><div><b>${c?esc(c.title):"Class no longer listed"}</b>
@@ -1269,7 +1283,7 @@ async function schoolReviewAction(id, hidden){
 function schoolDash(){
   if(!sb) return `<div class="wrap page"><h2>My school</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
   if(A.recovery) return newPasswordPage();
-  if(!A.user) return authPage();
+  if(!A.user){ kindFor("myschool","school"); return authPage() }
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.school) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">My school</h2>${who}</div>
     <div class="notice">This page is for school accounts. To register a school, create a separate school account with a different email.</div></div>`;
@@ -1453,7 +1467,7 @@ async function setSchoolStatus(id,status){
 function partnerPage(){
   if(!sb) return `<div class="wrap page"><h2>Affiliate dashboard</h2><div class="notice">Accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
   if(A.recovery) return newPasswordPage();
-  if(!A.user) return authPage();
+  if(!A.user){ kindFor("partner","affiliate"); return authPage() }
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.aff) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">Affiliate dashboard</h2>${who}</div>
     <div class="notice">This page is for affiliate accounts. To become an affiliate, create a separate affiliate account with a different email.</div></div>`;
@@ -1611,7 +1625,8 @@ render = function(){
   }
 };
 (function start(){
-  S.myClasses=[]; if(S.role==="teacher"){ S.role="learner"; $("#role").value="learner" } save();
+  S.myClasses=[]; S.bookings=[]; S.children=[];   // nothing pretend is kept: lessons and children live in real accounts
+  if(S.role==="teacher"){ S.role="learner"; $("#role").value="learner" } save();
   TAB="profile";
   const h=location.hash;
   if(/error_description=/.test(h)){
