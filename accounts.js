@@ -287,6 +287,73 @@ function adminMsgs(){
   </div>`;
 }
 
+/* ---------- address help: browser autofill, country list, place suggestions ---------- */
+const ISO2 = "AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HK HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE KI KW KG LA LV LB LS LR LY LI LT LU MO MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG KP MK NO OM PK PW PS PA PG PY PE PH PL PT PR QA RO RU RW KN LC VC WS SM ST SA SN RS SC SL SG SK SI SB SO ZA KR SS ES LK SD SR SE CH SY TW TJ TZ TH TL TG TO TT TN TR TM TV UG UA AE GB US UY UZ VU VE VN YE ZM ZW";
+function countryNames(){
+  try{ const d=new Intl.DisplayNames(["en"],{type:"region"}); return ISO2.split(" ").map(c=>d.of(c)).filter(Boolean).sort((x,y)=>x.localeCompare(y)) }catch(e){ return [] }
+}
+// Called after every screen is drawn: tells the browser what each field is, so its own autofill can offer saved details,
+// gives country fields a pick-list, and marks the fields that get place suggestions.
+function fieldHints(){
+  if(!$("#countrylist")){ const dl=document.createElement("datalist"); dl.id="countrylist"; dl.innerHTML=countryNames().map(n=>`<option value="${esc(n)}"></option>`).join(""); document.body.appendChild(dl) }
+  const set=(sel,attrs)=>document.querySelectorAll(sel).forEach(el=>{ for(const k in attrs) el.setAttribute(k,attrs[k]) });
+  set("#pf-name,#ac-name,#af-name",{autocomplete:"name"});
+  set("#pf-city,#ac-city,#sc-city",{autocomplete:"address-level2","data-place":"city"});
+  set("#pf-country,#ac-country,#sc-country,#af-country",{autocomplete:"country-name",list:"countrylist"});
+  set("#sc-name",{autocomplete:"organization"});
+  set("#nc-place,#ed-place",{autocomplete:"off","data-place":"city"});
+  set("#nc-address",{autocomplete:"street-address","data-place":"address"});
+  document.querySelectorAll('input[id^="link-"]').forEach(el=>{ if(/^Address/.test(el.placeholder)){ el.dataset.place="address"; el.setAttribute("autocomplete","street-address") } });
+}
+const PLACE = {box:null, input:null, items:[], idx:-1, timer:null, seq:0};
+function placeClose(){ if(PLACE.box) PLACE.box.remove(); PLACE.box=null; PLACE.items=[]; PLACE.idx=-1 }
+async function placeSearch(input){
+  const q=input.value.trim(), kind=input.dataset.place;
+  if(q.length<3){ placeClose(); return }
+  const seq=++PLACE.seq; let feats=[];
+  try{
+    const r = await fetch("https://photon.komoot.io/api/?limit=6&lang=en&q="+encodeURIComponent(q)+(kind==="city"?"&layer=city&layer=locality&layer=district":""));
+    if(r.ok) feats = (await r.json()).features || [];
+  }catch(e){}
+  if(seq!==PLACE.seq || document.activeElement!==input) return;   // a newer search is running, or they moved on
+  const seen=new Set(), items=[];
+  feats.forEach(f=>{
+    const p=f.properties||{}; let it;
+    if(kind==="city") it={value:p.name||"", label:[p.name,p.state,p.country].filter(Boolean).join(", "), country:p.country||""};
+    else { const street=[p.housenumber,p.street].filter(Boolean).join(" ") || p.name || "";
+      const label=[street, p.city||p.district||p.county, p.state, p.postcode, p.country].filter(Boolean).join(", "); it={value:label, label, country:p.country||""} }
+    if(it.value && !seen.has(it.label)){ seen.add(it.label); items.push(it) }
+  });
+  placeShow(input, items);
+}
+function placeShow(input, items){
+  placeClose(); if(!items.length) return;
+  const r=input.getBoundingClientRect(), box=document.createElement("div");
+  box.setAttribute("role","listbox"); box.setAttribute("aria-label","Place suggestions");
+  box.style.cssText=`position:absolute;z-index:60;left:${Math.max(12,r.left+scrollX)}px;top:${r.bottom+scrollY+4}px;width:${Math.max(r.width,230)}px;max-width:calc(100vw - 24px);background:#fff;color:#282748;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px #0002;overflow:hidden;font-size:14px`;
+  box.innerHTML = items.map((it,i)=>`<div role="option" data-i="${i}" style="padding:9px 12px;cursor:pointer">${esc(it.label)}</div>`).join("") + `<div style="padding:5px 12px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)">Suggestions from OpenStreetMap</div>`;
+  box.addEventListener("mousedown",e=>{ const o=e.target.closest("[data-i]"); if(!o) return; e.preventDefault(); placePick(+o.dataset.i) });
+  box.addEventListener("mousemove",e=>{ const o=e.target.closest("[data-i]"); if(o && PLACE.idx!==+o.dataset.i){ PLACE.idx=+o.dataset.i; placeMark() } });
+  document.body.appendChild(box); Object.assign(PLACE,{box,input,items,idx:-1});
+}
+function placeMark(){ if(PLACE.box) PLACE.box.querySelectorAll("[data-i]").forEach((o,i)=>{ o.style.background = i===PLACE.idx ? "#eee9fb" : ""; o.setAttribute("aria-selected", i===PLACE.idx) }) }
+// Choosing a place fills the field, and the country field of the same form when there is one.
+function placePick(i){
+  const it=PLACE.items[i], input=PLACE.input; if(!it || !input) return;
+  input.value=it.value;
+  const c=input.form && input.form.querySelector("[name=country]");
+  if(c && c!==input && it.country) c.value=it.country;
+  placeClose();
+}
+document.addEventListener("input",e=>{ const t=e.target; if(!t.dataset || !t.dataset.place) return; clearTimeout(PLACE.timer); PLACE.timer=setTimeout(()=>placeSearch(t),300) });
+document.addEventListener("keydown",e=>{
+  if(!PLACE.box || e.target!==PLACE.input) return;
+  if(e.key==="ArrowDown" || e.key==="ArrowUp"){ e.preventDefault(); const n=PLACE.items.length; PLACE.idx=(PLACE.idx+(e.key==="ArrowDown"?1:-1)+n)%n; placeMark() }
+  else if(e.key==="Enter" && PLACE.idx>=0){ e.preventDefault(); placePick(PLACE.idx) }
+  else if(e.key==="Escape") placeClose();
+});
+document.addEventListener("focusout",e=>{ if(e.target===PLACE.input){ PLACE.seq++; setTimeout(placeClose,150) } });
+
 /* ---------- online payment (Stripe) ---------- */
 const PAY_LABEL = {paid:"Paid", kept:"Kept (late cancellation)", refund_due:"Refund on its way", refunded:"Refunded", pending:"Not completed"};
 function payNote(b){
@@ -1324,7 +1391,7 @@ function termsPage(){
 }
 function privacyPage(){
   return legalPage("Privacy Policy","3 October 2026",[
-    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Payments:</b> the lesson, the amount and the status of each payment. Card details are entered on Stripe's page and never reach SeastackSchool. Teachers who connect Stripe give their payout details to Stripe, not to us.","<b>Teachers:</b> a profile photo, if you add one."]],
+    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Place suggestions:</b> when you type a city or an address, the letters you type are sent to an OpenStreetMap search service (Photon) so that it can suggest places. Your name and account are not sent.","<b>Payments:</b> the lesson, the amount and the status of each payment. Card details are entered on Stripe's page and never reach SeastackSchool. Teachers who connect Stripe give their payout details to Stripe, not to us.","<b>Teachers:</b> a profile photo, if you add one."]],
     ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
     ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","A message is seen by the two people in the conversation. SeastackSchool staff can read messages when needed for safety.","A teacher's profile photo is public once the teacher is approved.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
@@ -1749,6 +1816,7 @@ render = function(){
     $("#app").innerHTML = r==="messages" ? messagesPage(location.hash.split("/")[2]) : r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
+  fieldHints();
   trackVisit(r);
   if(A.pendingClass && A.ready){
     const id=A.pendingClass; A.pendingClass=null;
