@@ -11,7 +11,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, alerts:[], alertEmail:true, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, sEditing:null, sRemoving:null, alerts:[], alertEmail:true, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
 const CANCELLED = {};
 // Online payment (Stripe). Off until the admin switches it on; the numbers come from the database.
 const PAY = {enabled:false, fee:20, hours:24, payable:new Set()};
@@ -226,6 +226,82 @@ function chrome(){
   if(can && m){ const u=A.contacts.reduce((a,c)=>a+(c.unread||0),0); m.textContent = u ? `Messages (${u})` : "Messages" }
 }
 
+/* ---------- a school runs its teachers' classes ---------- */
+// What a teacher who belongs to a school sees under My classes.
+function schoolTeacherClasses(){
+  return `<div class="notice" style="margin-top:0">Your school${A.mySchool?", "+esc(A.mySchool.name)+",":""} creates your classes and sets their prices and times. You add the lesson link or address below, and teach. To change a class, ask your school.</div>${myClassList()}`;
+}
+function schoolClassesBox(){
+  const s=A.school, team=A.members.filter(t=>t.status!=="suspended");
+  const x = A.sEditing && A.sEditing!=="new" ? A.mclasses.find(c=>c.id===A.sEditing) : null, open = A.sEditing==="new" || !!x;
+  const tOf=id=>A.members.find(t=>t.id===id)||{};
+  return `<div class="box" id="sclasses"><h3>Classes</h3>
+    <p class="muted small">Your school creates each class, sets its price and times, and chooses which of your teachers takes it. The teacher adds the lesson link or address, and teaches. ${s.status==="approved"?"":"Classes become public once your school is approved."}</p>
+    ${A.mclasses.length?A.mclasses.map(c=>{ const t=tOf(c.teacher_id);
+      return `<div class="lesson"><div style="flex:1;min-width:200px"><span class="tag ${c.type}">${c.type==="private"?"Private lesson":"Small group · up to "+c.capacity}</span> <b>${esc(c.title)}</b>
+        <div class="small muted">Teacher: ${esc(t.full_name||"(no name yet)")}${t.status==="pending"?" (not approved yet)":""} · ${esc(c.subject)} · ${c.level} · ages ${c.age_min}${c.age_max>=99?"+":"–"+c.age_max} · ${money(+c.price)} · ${c.days.map(d=>DAY3[d]).join(", ")} at ${c.start_time.slice(0,5)} (${esc((t.timezone||"UTC").replace(/_/g," "))} time) · ${c.duration_min} min · ${c.mode==="in_person"?"In person"+(c.place_city?" · "+esc(c.place_city):""):"Online"}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.sEditing='${c.id}';A.sRemoving=null;render();$('#sclassf')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeSchoolClass('${c.id}')">${A.sRemoving===c.id?"Confirm remove":"Remove"}</button></div></div>` }).join("")
+      :`<div class="empty" style="margin-bottom:12px">No classes yet.</div>`}
+    ${open ? schoolClassForm(x, team)
+      : team.length ? `<button class="btn sm" style="margin-top:10px" onclick="A.sEditing='new';render();$('#sclassf')?.scrollIntoView({block:'center'})">Create a class</button>`
+      : `<p class="small muted" style="margin:10px 0 0">Invite a teacher with the link above. Once they have joined, you can create classes for them.</p>`}
+  </div>`;
+}
+function schoolClassForm(x, team){
+  const locked = !!x && classHasUpcoming(x.id), dis = locked ? "disabled" : "", v = x || {type:"group",capacity:6,age_min:8,age_max:16,level:"Beginner",days:[],start_time:"16:00",duration_min:60,mode:"online",price:"",title:"",subject:"",language:"",place_city:"",teacher_id:team[0]?.id};
+  return `<form class="row" id="sclassf" novalidate onsubmit="event.preventDefault();saveSchoolClass(this)" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+    <h3 style="grid-column:1/-1;margin:0">${x?"Edit class":"Create a class"}</h3>
+    ${locked?`<div class="notice" style="grid-column:1/-1;margin:0">This class has upcoming bookings, so its days, time, length, kind and place can't be changed. You can still change the teacher, title, subject, language, level, ages, price and class size.</div>`:""}
+    <label class="field" style="grid-column:1/-1">Teacher<select name="teacher" id="sc2-teacher">${team.map(t=>`<option value="${t.id}" ${t.id===v.teacher_id?"selected":""}>${esc(t.full_name||"(no name yet)")} (${esc((t.timezone||"UTC").replace(/_/g," "))} time)${t.status==="pending"?" (not approved yet)":""}</option>`).join("")}</select></label>
+    <label class="field" style="grid-column:1/-1">Class title<input name="title" id="sc2-title" maxlength="140" value="${esc(v.title)}"></label>
+    <label class="field">Subject<input name="subject" id="sc2-subject" maxlength="60" value="${esc(v.subject)}"></label>
+    <label class="field">Teaching language<input name="lang" id="sc2-lang" maxlength="60" value="${esc(v.language)}"></label>
+    <label class="field">Student level<select name="level" id="sc2-level">${["Beginner","Intermediate","Advanced"].map(l=>`<option ${l===v.level?"selected":""}>${l}</option>`).join("")}</select></label>
+    <label class="field">Price per lesson (USD)<input name="price" id="sc2-price" type="number" min="1" value="${v.price===""?"":+v.price}"></label>
+    <label class="field">Kind of class<select name="type" id="sc2-type" ${dis} onchange="$('#sc2-capwrap').hidden=this.value==='private'"><option value="group" ${v.type==="group"?"selected":""}>Small group class</option><option value="private" ${v.type==="private"?"selected":""}>Private lesson</option></select></label>
+    <label class="field" id="sc2-capwrap" ${v.type==="private"?"hidden":""}>Maximum class size<input name="cap" id="sc2-cap" type="number" min="2" max="50" value="${v.type==="group"?v.capacity:6}"></label>
+    <label class="field">Youngest age<input name="a0" id="sc2-a0" type="number" min="3" value="${v.age_min}"></label>
+    <label class="field">Oldest age<input name="a1" id="sc2-a1" type="number" min="3" value="${v.age_max>=99?"":v.age_max}" placeholder="no limit"></label>
+    <label class="field">Where<select name="mode" id="sc2-mode" ${dis} onchange="$('#sc2-placewrap').hidden=this.value!=='in_person'"><option value="online" ${v.mode!=="in_person"?"selected":""}>Online</option><option value="in_person" ${v.mode==="in_person"?"selected":""}>In person</option></select></label>
+    <label class="field" id="sc2-placewrap" ${v.mode==="in_person"?"":"hidden"}>City or area (public)<input name="place" id="sc2-place" maxlength="120" value="${esc(v.place_city||"")}" data-place="city" autocomplete="off"></label>
+    <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Days</legend><div class="chips">${DAY3.map((d,i)=>`<label class="chip"><input type="checkbox" name="day" value="${i}" ${v.days.includes(i)?"checked":""} ${dis}> ${d}</label>`).join("")}</div></fieldset>
+    <label class="field">Start time, on the teacher's clock<input name="time" id="sc2-time" type="time" value="${v.start_time.slice(0,5)}" ${dis}></label>
+    <label class="field">Lesson length (minutes)<input name="mins" id="sc2-mins" type="number" min="15" step="5" value="${v.duration_min}" ${dis}></label>
+    <p class="small muted" style="grid-column:1/-1;margin:0">Class times are kept in the chosen teacher's time zone, shown next to their name. A class can be handed to another of your teachers only if both are in the same time zone.</p>
+    <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap"><button class="btn">${x?"Save changes":"Create class"}</button><button type="button" class="btn ghost" onclick="A.sEditing=null;render()">Cancel</button></div>
+  </form>`;
+}
+async function saveSchoolClass(f){
+  const x = A.sEditing && A.sEditing!=="new" ? A.mclasses.find(c=>c.id===A.sEditing) : null;
+  const title=f.title.value.trim(), subject=f.subject.value.trim(), lang=f.lang.value.trim(), price=+f.price.value, a0=+f.a0.value, a1=Math.min(99,+f.a1.value||99);
+  if(!f.teacher.value) return toast("Choose a teacher");
+  if(!title || !subject || !lang) return toast("Fill in the title, subject and teaching language");
+  if(!(price>0)) return toast("Enter a price above zero");
+  if(!(a0>=3) || a1<a0) return toast("Check the ages: the oldest must be the same as or above the youngest");
+  const row={teacher_id:f.teacher.value,title,subject,language:lang,level:f.level.value,price,age_min:a0,age_max:a1};
+  if(x && classHasUpcoming(x.id)){
+    if(x.type==="group") row.capacity=Math.max(2,+f.cap.value||x.capacity);
+  } else {
+    const days=[...f.querySelectorAll("[name=day]:checked")].map(d=>+d.value), type=f.type.value, mode=f.mode.value, place=f.place.value.trim(), mins=+f.mins.value;
+    if(!days.length) return toast("Choose at least one day");
+    if(!f.time.value) return toast("Enter the start time");
+    if(!(mins>=15 && mins<=240)) return toast("Lesson length must be between 15 and 240 minutes");
+    if(mode==="in_person" && !place) return toast("Enter the city or area where the class takes place");
+    Object.assign(row,{type,capacity:type==="private"?1:Math.max(2,+f.cap.value||6),days,start_time:f.time.value,duration_min:mins,mode,place_city:mode==="in_person"?place:""});
+  }
+  const r = x ? await sb.from("classes").update(row).eq("id",x.id).select("id").maybeSingle() : await sb.from("classes").insert(row).select("id").maybeSingle();
+  if(r.error || !r.data) return toast(r.error?.message || "The class could not be saved");
+  A.sEditing=null; await loadSchoolExtras(); await loadPublic(); toast(x?"Class updated":"Class created"); render();
+}
+async function removeSchoolClass(id){
+  if(A.sRemoving!==id){ A.sRemoving=id; render(); return }
+  A.sRemoving=null;
+  const r = await sb.from("classes").delete().eq("id",id);
+  if(r.error){ toast(r.error.message); render(); return }
+  if(A.sEditing===id) A.sEditing=null;
+  await loadSchoolExtras(); await loadPublic(); toast("Class removed"); render();
+}
+
 /* ---------- alerts: what happened on your account. The same alerts are emailed unless email is switched off ---------- */
 async function loadAlerts(){
   if(!A.user) return;
@@ -411,6 +487,7 @@ function settleRefunds(){
   try{ sb.functions.invoke("stripe-refunds",{body:{}}).then(()=>setTimeout(async()=>{ await loadMe(); render() },1500)).catch(()=>{}) }catch(e){}
 }
 function teacherPayBox(){
+  if(A.teacher.school_id) return `<div class="box" id="paybox"><h3>Getting paid</h3><p class="muted small" style="margin:0">Families pay your school for your lessons, and your school pays you. You don't need to connect Stripe.</p></div>`;
   const p=A.payout, guess=(PAY_COUNTRIES.find(c=>c[1].toLowerCase()===(A.teacher.country||"").trim().toLowerCase())||[""])[0];
   return `<div class="box" id="paybox"><h3>Getting paid</h3>
     <p class="muted small">Families pay for a lesson when they book it. You receive ${100-PAY.fee}% of your lesson price, paid to your bank account by Stripe. SeastackSchool keeps ${PAY.fee}%. If a lesson is refunded, your share of it is taken back.${PAY.enabled?"":" Online payment is not open yet. You can connect now so that you are ready."}</p>
@@ -442,6 +519,7 @@ async function payDashboard(){
   location.href = r.data.url;
 }
 function teacherEarnings(){
+  if(A.teacher.school_id) return "";
   const rows=A.pays.filter(p=>p.teacher_id===A.user.id && p.status!=="pending"); if(!rows.length) return "";
   const share=p=>p.amount_cents-p.fee_cents, earned=rows.filter(p=>p.status==="paid"||p.status==="kept").reduce((s,p)=>s+share(p),0);
   return `<h3 style="margin-top:24px">Payments for your lessons</h3>
@@ -646,7 +724,7 @@ studio = function(){
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}${teacherLevelBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?teacherPhotoBox()+profileForm()+teacherQualsBox()+teacherDocsBox()+teacherPayBox()+accountSettings():TAB==="list"?listings():TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast()+teacherEarnings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?teacherPhotoBox()+profileForm()+teacherQualsBox()+teacherDocsBox()+teacherPayBox()+accountSettings():TAB==="list"?(A.teacher.school_id?schoolTeacherClasses():listings()):TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast()+teacherEarnings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
@@ -695,7 +773,7 @@ function myClassList(){
       <div class="small muted">${modeLabel(c)} · ${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (${esc((A.teacher.timezone||"UTC").replace(/_/g," "))} time) · ${c.mins} min</div>
       <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc((c.mode==="in_person"?A.addresses[x.id]:A.links[x.id])||"")}" placeholder="${c.mode==="in_person"?"Address (only people who booked can see it)":"Lesson link (Zoom, Meet…): https://"}" aria-label="${c.mode==="in_person"?"Address":"Lesson link"} for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">${c.mode==="in_person"?"Save address":"Save link"}</button></div>
       ${A.teacher.status==="approved"?`<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">This class's own page to share: <a href="${SITE_BASE}classes/${slugify(x.title,x.id)}/">${esc(SITE_BASE)}classes/${slugify(x.title,x.id)}/</a></div>`:""}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.editing='${x.id}';render();$('#editclass')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div></div>` }).join("")}</div>`;
+    ${A.teacher.school_id?"":`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.editing='${x.id}';render();$('#editclass')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div>`}</div>` }).join("")}</div>`;
 }
 addListing = async function(f){
   const days=[...f.querySelectorAll("[name=day]:checked")].map(x=>+x.value);
@@ -1161,8 +1239,8 @@ function teacherChecklist(){
     [A.quals.length>0 && A.quals.every(q=>q.doc_name), "Add your qualifications, with a photo of the document for each, so families know what you are qualified to teach", "profile", "Open My profile"],
     [A.tdocs.some(idDoc) || !!t.identity_checked_at, "Upload an identity document", "profile", "Open My profile"],
     [!!t.photo, "Add a profile photo", "profile", "Open My profile"],
-    ...(PAY.enabled ? [[!!(A.payout && A.payout.charges_enabled), "Connect Stripe so you can be paid. Classes can't be booked until you do", "profile", "Open My profile"]] : []),
-    [cl.length>0, "Create your first class", "list", "Open My classes"],
+    ...(PAY.enabled && !t.school_id ? [[!!(A.payout && A.payout.charges_enabled), "Connect Stripe so you can be paid. Classes can't be booked until you do", "profile", "Open My profile"]] : []),
+    [cl.length>0, t.school_id ? "Your school gives you your first class" : "Create your first class", t.school_id ? null : "list", "Open My classes"],
     [cl.length>0 && cl.every(c=>c.mode==="in_person" ? !!A.addresses[c.id] : !!A.links[c.id]), "Add a lesson link (online) or address (in person) to every class", "list", "Open My classes"],
     [t.status==="approved", t.school_id ? "Be approved by your school" : "Be approved by SeastackSchool, which happens after we review your profile", null, ""]
   ];
@@ -1417,8 +1495,8 @@ function termsPage(){
   return legalPage("Terms of Use","3 October 2026",[
     ["What SeastackSchool is",["SeastackSchool is a website where independent teachers and schools list lessons, online or in person, and students and parents book them. Teachers and schools are not employees of SeastackSchool. Each teacher or school is responsible for the lessons they give."]],
     ["Accounts",["You must give accurate information and keep your password to yourself. One person or one school per account.","Student accounts are for people aged 13 or over. Children under 13 do not have accounts: a parent or guardian books for them from a parent account and is responsible for those bookings."]],
-    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement. A teacher's level (New, Verified, Established, Senior) is worked out automatically from identity and qualification checks, lessons taught on SeastackSchool and ratings. It is not a guarantee of quality."]],
-    ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons."]],
+    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement. A teacher's level (New, Verified, Established, Senior) is worked out automatically from identity and qualification checks, lessons taught on SeastackSchool and ratings. It is not a guarantee of quality.","Teachers who are not part of a school are independent. They are not employees, agents or contractors of SeastackSchool. Each independent teacher is solely responsible for their own taxes: declaring their income, and charging, collecting and paying any sales tax, GST, HST or VAT that applies to their lessons. SeastackSchool does not withhold, collect, pay or file any tax for teachers, does not issue tax documents for them beyond what the law requires of it, and does not give tax advice."]],
+    ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons.","A school creates the classes its teachers take and sets their prices. The school, not SeastackSchool, is responsible for paying its teachers and for all taxes and employment obligations that arise from its lessons and its staff."]],
     ["Messages",["A teacher and a student or parent can message each other once a lesson has been booked between them. Messages are for arranging and discussing lessons. Do not use them to move lessons or payment away from SeastackSchool, or to ask a child for personal contact details.","SeastackSchool can read messages to keep families and teachers safe, and can suspend an account that misuses them."]],
     ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
     ["Prices and payment", PAY.enabled ? ["Prices are set by teachers and shown in US dollars. You pay for a lesson when you book it, on a secure page run by Stripe. SeastackSchool never sees or stores your card number.",
@@ -1565,6 +1643,7 @@ function schoolDash(){
         ${A.members.length?A.members.map(t=>`<div class="lesson"><div><b>${esc(t.full_name||"(no name yet)")}</b> ${pill(t)}<div class="small muted">${(n=>n+" "+(n===1?"class":"classes"))(A.mclasses.filter(c=>c.teacher_id===t.id).length)}${t.city?" · "+esc(t.city):""}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${t.status==="pending" && s.status==="approved"?`<button class="btn sm" onclick="memberAction('${t.id}','approve')">Approve</button>`:""}<button class="btn ghost sm" onclick="memberAction('${t.id}','remove')">${A.removingMember===t.id?"Confirm remove":"Remove"}</button></div></div>`).join("")
         :`<div class="empty">No teachers have joined yet.</div>`}</div>
+      ${schoolClassesBox()}
       <div class="box"><h3>Upcoming bookings</h3>
         ${up.length?up.map(b=>{ const c=A.mclasses.find(x=>x.id===b.class_id), t=A.members.find(x=>x.id===c.teacher_id), w=new Date(b.starts_at); return `<div class="lesson"><div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(t?t.full_name:"")} · for ${esc(b.attendee_name)}</div></div></div>` }).join("")
         :`<p class="muted" style="margin:0">No upcoming bookings in your teachers' classes yet.</p>`}</div>
