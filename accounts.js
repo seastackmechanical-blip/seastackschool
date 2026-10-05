@@ -11,7 +11,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, sEditing:null, sRemoving:null, alerts:[], alertEmail:true, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, mquals:[], smsgs:[], sEditing:null, sRemoving:null, alerts:[], alertEmail:true, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
 const CANCELLED = {};
 // Online payment (Stripe). Off until the admin switches it on; the numbers come from the database.
 const PAY = {enabled:false, fee:20, hours:24, payable:new Set()};
@@ -37,7 +37,7 @@ const TEACH_LEVELS = ["Preschool","Primary","Secondary","University","Adults"];
 const RANKS = ["New teacher","Verified teacher","Established teacher","Senior teacher"];
 function rankTag(t){ return t && t.real ? ` <span class="tag ${t.lvl?"ok":"group"}" title="Teacher level on SeastackSchool">${RANKS[t.lvl||0]}</span>` : "" }
 // A teacher's listed qualifications: [{title, issuer, year}]
-function qualList(q){ return (Array.isArray(q)?q:[]).filter(x=>x && x.title).map(x=>({title:String(x.title),issuer:String(x.issuer||""),year:String(x.year||"")})) }
+function qualList(q){ return (Array.isArray(q)?q:[]).filter(x=>x && x.title).map(x=>({title:String(x.title),issuer:String(x.issuer||""),year:String(x.year||""),by:x.verified_at?"site":x.school_verified_at?"school":""})) }
 function qualLine(x){ return `<b>${esc(x.title)}</b>${x.issuer?", "+esc(x.issuer):""}${x.year?" ("+esc(x.year)+")":""}` }
 // The part of a teacher's public profile that says what they are qualified to teach.
 function teacherMore(t){
@@ -48,8 +48,8 @@ function teacherMore(t){
     ${(t.teaches||[]).length?`<h3>Teaches</h3><div class="chips">${t.teaches.map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>`:""}
     ${(t.subj||[]).length?`<h3>Subjects</h3><div class="chips">${t.subj.map(s=>`<span class="chip">${esc(s)}</span>`).join("")}</div>`:""}
     ${t.edu?`<h3>Education</h3><p style="white-space:pre-line">${esc(t.edu)}</p>`:""}
-    ${q.length?`<h3>Qualifications and certificates</h3><ul style="margin:0 0 8px;padding-left:20px">${q.map(x=>`<li>${qualLine(x)}</li>`).join("")}</ul>`:""}
-    ${q.length?`<p class="small muted" style="margin:0 0 12px">SeastackSchool has seen the document for each qualification listed here.</p>`:""}`;
+    ${q.length?`<h3>Qualifications and certificates</h3><ul style="margin:0 0 8px;padding-left:20px">${q.map(x=>`<li>${qualLine(x)} <span class="small muted">· verified by ${x.by==="school"?esc((A.schools.find(s=>s.id===t.school)||{}).name||"the teacher's school"):"SeastackSchool"}</span></li>`).join("")}</ul>`:""}
+    ${q.length?`<p class="small muted" style="margin:0 0 12px">The document for each qualification has been seen by whoever is named beside it.</p>`:""}`;
 }
 // What a teacher sees about a person booked into their own class.
 function attendeeCard(b){
@@ -118,7 +118,7 @@ async function loadPublic(){
   for(const k in CANCELLED) delete CANCELLED[k];
   (cx.data||[]).forEach(x=>{ CANCELLED[x.class_id+"@"+Date.parse(x.starts_at)] = true });
   // only qualifications the admin has verified against a document are public
-  const qv = await sb.from("teacher_qualifications").select("id,teacher_id,title,issuer,year,verified_at").not("verified_at","is",null).order("created_at");
+  const qv = await sb.from("teacher_qualifications").select("id,teacher_id,title,issuer,year,verified_at,school_verified_at").or("verified_at.not.is.null,school_verified_at.not.is.null").order("created_at");
   const QV = {}; (qv.data||[]).forEach(q=>{ (QV[q.teacher_id] = QV[q.teacher_id] || []).push(q) });
   const lv = await sb.rpc("teacher_levels");
   const LV = {}; (lv.data||[]).forEach(x=>{ LV[x.teacher_id]=x });
@@ -253,6 +253,28 @@ function schoolEarnings(){
     ${Object.keys(by).length>1?`<p class="small" style="margin:0 0 8px">By teacher: ${Object.keys(by).map(id=>esc(tn(id))+" "+usd(by[id])).join(" · ")}</p>`:""}
     ${rows.slice(0,30).map(p=>{ const w=new Date(p.starts_at); return `<div class="lesson"><div><b>${esc(p.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(tn(p.teacher_id))} · for ${esc(p.attendee_name)}</div></div><span class="small">${PAY_LABEL[p.status]||p.status} · ${p.status==="paid"||p.status==="kept"?"school's share "+usd(share(p)):usd(p.amount_cents)}</span></div>` }).join("")}</div>`;
 }
+// The school checks its own teachers' qualification documents. This is the school's verification, named as such in public.
+function schoolQuals(tid){
+  const list=(A.mquals||[]).filter(q=>q.teacher_id===tid), docs=A.tdocsAdmin[tid];
+  if(!list.length) return "";
+  return `<div class="small" style="margin-top:6px">${list.map(q=>{ const d=docs && q.doc_name ? docs.find(x=>x.path.endsWith("/"+q.doc_name)) : null;
+    return `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">${qualLine(q)} ${qualStatus(q)}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">${!q.doc_name?"":d&&d.url?`<a class="btn sm ghost" href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">Open document</a>`:`<button class="btn sm ghost" onclick="showTeacherDocs('${tid}')">Show document</button>`}
+        ${q.school_verified_at?`<button class="btn sm ghost" onclick="schoolVerifyQual('${q.id}',false)">Remove school verification</button>`:q.doc_name?`<button class="btn sm" onclick="schoolVerifyQual('${q.id}',true)">Verify</button>`:""}</div></div>` }).join("")}</div>`;
+}
+async function schoolVerifyQual(id, yes){
+  const r = await sb.rpc("school_verify_qualification",{p_id:id,p_verified:yes});
+  if(r.error) return toast(r.error.message);
+  await loadSchoolExtras(); await loadPublic(); toast(yes?"Verified. It shows on the teacher's profile as verified by your school.":"School verification removed"); render();
+}
+function schoolMsgsBox(){
+  const rows=A.smsgs||[];
+  return `<div class="box" id="smsgs"><h3>Messages between your teachers and families</h3>
+    <p class="muted small">You can read these to keep children and your teachers safe. You cannot write in them. Families and teachers are told that the school can read their messages. Only messages sent since each teacher joined your school are shown.</p>
+    ${rows.length?`<details><summary>${rows.length} ${rows.length===1?"message":"messages"}</summary>${rows.slice(0,120).map(m=>{ const w=new Date(m.created_at), t=esc(m.teacher_name||"(teacher)"), l=esc(m.learner_name||"(family)");
+      return `<div style="padding:8px 0;border-top:1px solid var(--line)"><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${m.from_teacher?t+" → "+l:l+" → "+t}</div><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(m.body)}</div></div>` }).join("")}</details>`
+      :`<p class="muted" style="margin:0">No messages yet.</p>`}</div>`;
+}
 // What a teacher who belongs to a school sees under My classes.
 function schoolTeacherClasses(){
   return `<div class="notice" style="margin-top:0">Your school${A.mySchool?", "+esc(A.mySchool.name)+",":""} creates your classes and sets their prices and times. You add the lesson link or address below, and teach. To change a class, ask your school.</div>${myClassList()}`;
@@ -371,7 +393,7 @@ function messagesPage(other){
   if(c){ if(A.threadWith!==other) openThread(other); return threadView(c) }
   A.threadWith=null;
   return `<div class="wrap page"><h2>Messages</h2>
-    <p class="muted">${A.teacher?"You can write to the students and parents who have booked your classes.":"You can write to the teachers whose classes you have booked."} Keep messages about the lessons. SeastackSchool can read messages to keep families and teachers safe.</p>
+    <p class="muted">${A.teacher?"You can write to the students and parents who have booked your classes.":"You can write to the teachers whose classes you have booked."} Keep messages about the lessons. SeastackSchool, and the teacher's school if they belong to one, can read messages to keep families and teachers safe.</p>
     ${A.contacts.length?A.contacts.map(x=>`<a class="lesson" href="#/messages/${x.other_id}" style="text-decoration:none;color:inherit"><div style="flex:1;min-width:0"><b>${esc(x.other_name||"(no name)")}</b> <span class="small muted">${esc(x.detail)}</span>${x.unread?` <span class="tag ok">${x.unread} new</span>`:""}
         <div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.last_body?esc(x.last_body):"No messages yet"}</div></div>
         <span class="small muted">${x.last_at?fmtDay(new Date(x.last_at)):""}</span></a>`).join("")
@@ -382,7 +404,7 @@ function threadView(c){
   const mineIsTeacher=!!A.teacher, list=A.thread;
   return `<div class="wrap page" style="max-width:760px">
     <div class="crumbs"><a href="#/messages">← All messages</a></div>
-    <h2 style="margin:8px 0 2px">${esc(c.other_name||"(no name)")}</h2><div class="small muted" style="margin-bottom:12px">${esc(c.detail)} · SeastackSchool can read messages to keep families and teachers safe.</div>
+    <h2 style="margin:8px 0 2px">${esc(c.other_name||"(no name)")}</h2><div class="small muted" style="margin-bottom:12px">${esc(c.detail)} · SeastackSchool, and the teacher's school if they belong to one, can read messages to keep families and teachers safe.</div>
     <div class="box" id="thread" style="display:flex;flex-direction:column;gap:8px">
       ${list===null?`<p class="muted" style="margin:0">Loading…</p>`:list.length?list.map(m=>{ const mine=m.from_teacher===mineIsTeacher, w=new Date(m.created_at);
         return `<div style="align-self:${mine?"flex-end":"flex-start"};max-width:85%;background:${mine?"var(--pen-soft)":"var(--surface)"};border:1px solid var(--line);border-radius:12px;padding:8px 12px">
@@ -1368,7 +1390,7 @@ async function dropTDoc(i){
 }
 async function showTeacherDocs(id){ A.tdocsAdmin[id] = await listDocs(id, "teacher-docs"); render() }
 /* ---------- qualifications: the public sees the title only; the admin verifies the document behind each one ---------- */
-const qualStatus = q => q.verified_at ? `<span class="tag ok">Verified</span>` : q.doc_name ? `<span class="tag group">Waiting for verification</span>` : `<span class="tag bad">Document needed</span>`;
+const qualStatus = q => q.verified_at ? `<span class="tag ok">Verified by SeastackSchool</span>${q.school_verified_at?` <span class="tag ok">and by the school</span>`:""}` : q.school_verified_at ? `<span class="tag ok">Verified by the school</span>` : q.doc_name ? `<span class="tag group">Waiting for verification</span>` : `<span class="tag bad">Document needed</span>`;
 // The teacher's own view of their level and what the next one needs.
 function teacherLevelBox(){
   const t=teacher(A.teacher.id);
@@ -1385,7 +1407,7 @@ function teacherLevelBox(){
 function teacherQualsBox(){
   const inp=`padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)`;
   return `<div class="box" id="qualbox"><h3>Qualifications</h3>
-    <p class="muted small">List each degree, teaching certificate or licence, and upload a clear photo or scan of the document for it. Students and parents see only the title, never the document. A qualification appears on your public profile after SeastackSchool has verified its document.</p>
+    <p class="muted small">List each degree, teaching certificate or licence, and upload a clear photo or scan of the document for it. Students and parents see only the title, never the document. A qualification appears on your public profile after SeastackSchool, or your school if you belong to one, has verified its document.</p>
     ${A.quals.length?A.quals.map(q=>`<div class="lesson"><div style="flex:1;min-width:200px">${qualLine(q)} ${qualStatus(q)}
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px"><input type="file" id="qfile-${q.id}" accept=".pdf,.jpg,.jpeg,.png" aria-label="Document for ${esc(q.title)}"><button class="btn ghost sm" id="qbtn-${q.id}" onclick="uploadQualDoc('${q.id}')">${q.doc_name?"Replace document":"Upload document"}</button></div>
         ${q.verified_at?`<div class="small muted" style="margin-top:4px">Replacing the document sends it for verification again.</div>`:""}</div>
@@ -1540,9 +1562,9 @@ function termsPage(){
   return legalPage("Terms of Use","3 October 2026",[
     ["What SeastackSchool is",["SeastackSchool is a website where independent teachers and schools list lessons, online or in person, and students and parents book them. Teachers and schools are not employees of SeastackSchool. Each teacher or school is responsible for the lessons they give."]],
     ["Accounts",["You must give accurate information and keep your password to yourself. One person or one school per account.","Student accounts are for people aged 13 or over. Children under 13 do not have accounts: a parent or guardian books for them from a parent account and is responsible for those bookings."]],
-    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement. A teacher's level (New, Verified, Established, Senior) is worked out automatically from identity and qualification checks, lessons taught on SeastackSchool and ratings. It is not a guarantee of quality.","Teachers who are not part of a school are independent. They are not employees, agents or contractors of SeastackSchool. Each independent teacher is solely responsible for their own taxes: declaring their income, and charging, collecting and paying any sales tax, GST, HST or VAT that applies to their lessons. SeastackSchool does not withhold, collect, pay or file any tax for teachers, does not issue tax documents for them beyond what the law requires of it, and does not give tax advice."]],
+    ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after SeastackSchool, or the school the teacher belongs to, has seen a photo or copy of the document for it. The profile says which of the two verified it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement. A teacher's level (New, Verified, Established, Senior) is worked out automatically from identity and qualification checks, lessons taught on SeastackSchool and ratings. It is not a guarantee of quality.","Teachers who are not part of a school are independent. They are not employees, agents or contractors of SeastackSchool. Each independent teacher is solely responsible for their own taxes: declaring their income, and charging, collecting and paying any sales tax, GST, HST or VAT that applies to their lessons. SeastackSchool does not withhold, collect, pay or file any tax for teachers, does not issue tax documents for them beyond what the law requires of it, and does not give tax advice."]],
     ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons.","A school creates the classes its teachers take and sets their prices. Where online payment is open, payment for a school's lessons goes to the school. The school, not SeastackSchool, is responsible for paying its teachers and for all taxes and employment obligations that arise from its lessons and its staff."]],
-    ["Messages",["A teacher and a student or parent can message each other once a lesson has been booked between them. Messages are for arranging and discussing lessons. Do not use them to move lessons or payment away from SeastackSchool, or to ask a child for personal contact details.","SeastackSchool can read messages to keep families and teachers safe, and can suspend an account that misuses them."]],
+    ["Messages",["A teacher and a student or parent can message each other once a lesson has been booked between them. Messages are for arranging and discussing lessons. Do not use them to move lessons or payment away from SeastackSchool, or to ask a child for personal contact details.","SeastackSchool, and the school a teacher belongs to, can read messages to keep families and teachers safe. SeastackSchool can suspend an account that misuses them."]],
     ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
     ["Prices and payment", PAY.enabled ? ["Prices are set by teachers and shown in US dollars. You pay for a lesson when you book it, on a secure page run by Stripe. SeastackSchool never sees or stores your card number.",
       `SeastackSchool keeps ${PAY.fee}% of each lesson price as its fee. The teacher receives the rest, paid to them by Stripe.`,
@@ -1559,7 +1581,7 @@ function privacyPage(){
   return legalPage("Privacy Policy","3 October 2026",[
     ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Alerts:</b> a record of the alerts sent to you (for example a booking, a cancellation or a lesson reminder). We email these to your account's address unless you switch email alerts off under Password and account.","<b>Place suggestions:</b> when you type a city or an address, the letters you type are sent to an OpenStreetMap search service (Photon) so that it can suggest places. Your name and account are not sent.","<b>Payments:</b> the lesson, the amount and the status of each payment. Card details are entered on Stripe's page and never reach SeastackSchool. Teachers who connect Stripe give their payout details to Stripe, not to us.","<b>Teachers:</b> a profile photo, if you add one."]],
     ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
-    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","A message is seen by the two people in the conversation. SeastackSchool staff can read messages when needed for safety.","A teacher's profile photo is public once the teacher is approved.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
+    ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","A message is seen by the two people in the conversation. SeastackSchool staff can read messages when needed for safety. If the teacher belongs to a school, that school can read the messages sent since the teacher joined it.","A teacher's profile photo is public once the teacher is approved.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool. A school can open the qualification documents of its own teachers, but not their identity documents.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
     ["Emails",["We email you to confirm your address, to reset your password, and about your bookings."]],
     ["How long we keep it",["We keep your information while your account exists. Documents stay until you remove them. To delete your account and its data, write to us from the Help page; some records may be kept where the law requires it."]],
@@ -1638,6 +1660,8 @@ async function loadSchoolExtras(){
   A.mclasses = ids.length ? ((await sb.from("classes").select("*").in("teacher_id", ids)).data || []) : [];
   A.mreviews = ids.length ? ((await sb.from("reviews").select("*").in("teacher_id", ids).order("updated_at",{ascending:false})).data || []) : [];
   A.docs = await listDocs(A.user.id);
+  A.mquals = ids.length ? ((await sb.from("teacher_qualifications").select("*").in("teacher_id", ids).order("created_at")).data || []) : [];
+  const sm = await sb.rpc("school_list_messages"); A.smsgs = sm.error ? [] : (sm.data || []);
 }
 async function schoolReviewAction(id, hidden){
   const r = await sb.rpc("school_set_review_hidden",{p_review_id:id,p_hidden:hidden});
@@ -1685,13 +1709,14 @@ function schoolDash(){
         <p class="muted small">Send teachers this link. They create a teacher account through it and appear here for you to approve. ${s.status==="approved"?"":"You can approve them once your school is approved."}</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="reflink" readonly value="${esc(link)}" aria-label="Invitation link for teachers" style="flex:1;min-width:200px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn sm" onclick="copyRef()">Copy link</button></div>
         <p class="small muted" style="margin:8px 0 12px">School code: <b>${esc(p.join_code)}</b>. A teacher who already has an account can enter it in their teacher studio.</p>
-        ${A.members.length?A.members.map(t=>`<div class="lesson"><div><b>${esc(t.full_name||"(no name yet)")}</b> ${pill(t)}<div class="small muted">${(n=>n+" "+(n===1?"class":"classes"))(A.mclasses.filter(c=>c.teacher_id===t.id).length)}${t.city?" · "+esc(t.city):""}</div></div>
+        ${A.members.length?A.members.map(t=>`<div class="lesson"><div><b>${esc(t.full_name||"(no name yet)")}</b> ${pill(t)}<div class="small muted">${(n=>n+" "+(n===1?"class":"classes"))(A.mclasses.filter(c=>c.teacher_id===t.id).length)}${t.city?" · "+esc(t.city):""}</div>${schoolQuals(t.id)}</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${t.status==="pending" && s.status==="approved"?`<button class="btn sm" onclick="memberAction('${t.id}','approve')">Approve</button>`:""}<button class="btn ghost sm" onclick="memberAction('${t.id}','remove')">${A.removingMember===t.id?"Confirm remove":"Remove"}</button></div></div>`).join("")
         :`<div class="empty">No teachers have joined yet.</div>`}</div>
       ${schoolClassesBox()}${schoolPayBox()}${schoolEarnings()}
       <div class="box"><h3>Upcoming bookings</h3>
         ${up.length?up.map(b=>{ const c=A.mclasses.find(x=>x.id===b.class_id), t=A.members.find(x=>x.id===c.teacher_id), w=new Date(b.starts_at); return `<div class="lesson"><div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(t?t.full_name:"")} · for ${esc(b.attendee_name)}</div></div></div>` }).join("")
         :`<p class="muted" style="margin:0">No upcoming bookings in your teachers' classes yet.</p>`}</div>
+      ${schoolMsgsBox()}
       <div class="box"><h3>Ratings of your teachers</h3>
         <p class="muted small">Only families who have finished a lesson can rate a teacher. As the school's admin you can hide a rating or show it again; teachers cannot. SeastackSchool can overrule your choice, and then it is final.</p>
         ${A.mreviews.length?A.mreviews.map(v=>{ const t=A.members.find(x=>x.id===v.teacher_id); return `<div class="lesson"><div><span class="stars">${starStr(v.stars)}</span> <b>${esc(t?t.full_name:"")}</b>${v.hidden?` <span class="tag bad">Not shown</span>`:""}

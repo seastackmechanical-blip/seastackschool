@@ -144,7 +144,7 @@ const [teachers, classes, schools, reviews, cancels, qualRows, levelRows] = awai
   get("schools", "select=*&status=eq.approved&order=name"),
   get("reviews", "select=*&order=updated_at.desc"),
   get("class_cancellations", "select=class_id,starts_at"),
-  get("teacher_qualifications", "select=teacher_id,title,issuer,year&verified_at=not.is.null&order=created_at"),
+  get("teacher_qualifications", "select=teacher_id,title,issuer,year,verified_at,school_verified_at&or=(verified_at.not.is.null,school_verified_at.not.is.null)&order=created_at"),
   get("rpc/teacher_levels", ""),
 ]);
 cancelled = new Set(cancels.map((x) => x.class_id + "@" + Date.parse(x.starts_at)));
@@ -231,8 +231,8 @@ for (const t of teachers) {
     ${t.teaches?.length ? `<h2 style="font-size:22px">Teaches</h2><div class="chips">${t.teaches.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}
     ${t.subjects?.length ? `<h2 style="font-size:22px">Subjects</h2><div class="chips">${t.subjects.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}
     ${t.education ? `<h2 style="font-size:22px">Education</h2><p style="white-space:pre-line">${esc(t.education)}</p>` : ""}
-    ${quals(t).length ? `<h2 style="font-size:22px">Qualifications and certificates</h2><ul style="margin:0 0 8px;padding-left:20px">${quals(t).map((x) => `<li><b>${esc(x.title)}</b>${x.issuer ? ", " + esc(x.issuer) : ""}${x.year ? " (" + esc(x.year) + ")" : ""}</li>`).join("")}</ul>` : ""}
-    ${quals(t).length ? `<p class="small muted" style="margin:0 0 12px">SeastackSchool has seen the document for each qualification listed here.</p>` : ""}
+    ${quals(t).length ? `<h2 style="font-size:22px">Qualifications and certificates</h2><ul style="margin:0 0 8px;padding-left:20px">${quals(t).map((x) => `<li><b>${esc(x.title)}</b>${x.issuer ? ", " + esc(x.issuer) : ""}${x.year ? " (" + esc(x.year) + ")" : ""} <span class="small muted">· verified by ${x.verified_at ? "SeastackSchool" : esc(sById.get(t.school_id)?.name || "the teacher's school")}</span></li>`).join("")}</ul>` : ""}
+    ${quals(t).length ? `<p class="small muted" style="margin:0 0 12px">The document for each qualification has been seen by whoever is named beside it.</p>` : ""}
     ${t.languages?.length ? `<h2 style="font-size:22px">Teaching languages</h2><div class="chips">${t.languages.map((l) => `<span class="chip">${esc(l)}</span>`).join("")}</div>` : ""}
     ${!t.intro && !t.experience && !t.languages?.length ? `<p class="muted" style="margin:0">This teacher hasn't written their profile yet.</p>` : ""}</div>
   <h2 style="font-size:22px">Classes</h2>
