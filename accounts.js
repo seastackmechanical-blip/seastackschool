@@ -110,8 +110,8 @@ async function loadPublic(){
   const [t,c,n,sch,rv,cx] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name"), sb.from("reviews").select("*").order("updated_at",{ascending:false}), sb.from("class_cancellations").select("class_id,starts_at").gt("starts_at", new Date().toISOString())]);
   if(t.error || c.error) return;
   A.schools = sch.data || []; A.reviews = rv.data || [];
-  const ps = await sb.from("payment_settings").select("enabled,fee_percent,refund_hours").maybeSingle(), pt = await sb.rpc("payable_teachers");
-  if(ps.data){ PAY.enabled=!!ps.data.enabled; PAY.fee=ps.data.fee_percent; PAY.hours=ps.data.refund_hours }
+  const ps = await sb.from("payment_settings").select("enabled,fee_percent,refund_hours,paused,pause_note").maybeSingle(), pt = await sb.rpc("payable_teachers");
+  if(ps.data){ PAY.enabled=!!ps.data.enabled; PAY.fee=ps.data.fee_percent; PAY.hours=ps.data.refund_hours; PAY.paused=!!ps.data.paused; PAY.pauseNote=ps.data.pause_note||"" }
   PAY.payable = new Set((pt.data||[]).map(x=>typeof x==="string" ? x : x.payable_teachers));
   for(const k in BOOKED) delete BOOKED[k];
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
@@ -140,16 +140,17 @@ function payChrome(){
   const rb=$(".demo-ribbon"), demos=TEACHERS.some(x=>!x.real); if(!rb) return;
   rb.textContent = demos ? (PAY.enabled ? "CLASSES MARKED DEMO ARE SAMPLES" : "CLASSES MARKED DEMO ARE SAMPLES / ONLINE PAYMENT IS NOT OPEN YET") : "ONLINE PAYMENT IS NOT OPEN YET / NOTHING IS CHARGED WHEN YOU BOOK";
   rb.hidden = !demos && PAY.enabled;
+  if(PAY.paused){ rb.textContent = "BOOKING IS PAUSED FOR A SHORT TIME" + (PAY.pauseNote ? " / " + PAY.pauseNote.toUpperCase() : ""); rb.hidden = false }
 }
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
-  A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.addresses={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
+  A.user = session?.user || null; A.teacher=null; A.admin=false; A.staff=null; A.staffer=false; A.boss=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.addresses={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
   A.contacts=[]; A.quals=[]; A.alerts=[]; A.alertEmail=true;
   A.school=null; A.schoolPriv=null; A.members=[]; A.mclasses=[]; A.docs=[]; A.mySchool=null; A.srows=null; A.sdocs={};
   if(!A.user) return;
   const [t,adm,c,l,k,b,ln,af,sc,sp] = await Promise.all([
     sb.from("teachers").select("*").eq("id",A.user.id).maybeSingle(),
-    sb.rpc("is_admin"),
+    sb.rpc("staff_state"),
     sb.from("classes").select("*").eq("teacher_id",A.user.id).order("created_at"),
     sb.from("learners").select("*").eq("id",A.user.id).maybeSingle(),
     sb.from("children").select("*").eq("parent_id",A.user.id).order("created_at"),
@@ -158,7 +159,7 @@ async function loadMe(){
     sb.from("affiliates").select("*").eq("id",A.user.id).maybeSingle(),
     sb.from("schools").select("*").eq("id",A.user.id).maybeSingle(),
     sb.from("school_private").select("*").eq("id",A.user.id).maybeSingle()]);
-  A.teacher = t.data || null; A.admin = adm.data === true; A.classes = c.data || [];
+  A.teacher = t.data || null; A.staff = adm.data || null; A.admin = !!(A.staff && A.staff.ok); A.staffer = !!(A.staff && A.staff.role); A.boss = A.admin && A.staff.role==="boss"; A.classes = c.data || [];
   A.learner = l.data || null; A.children = k.data || [];
   A.bookings = b.data || []; (ln.data||[]).forEach(x=>{ if(x.url) A.links[x.class_id]=x.url; if(x.address) A.addresses[x.class_id]=x.address });
   A.aff = af.data || null;
@@ -178,7 +179,7 @@ async function loadMe(){
   if(A.teacher){ const pw = await sb.from("payout_waitlist").select("country").eq("teacher_id",A.user.id).maybeSingle(); A.payWait = pw.data ? pw.data.country : null }
   if(A.teacher){ const po = await sb.from("teacher_payouts").select("*").eq("teacher_id",A.user.id).maybeSingle(); A.payout = po.data || null }
   if(A.school){ const po = await sb.from("school_payouts").select("*").eq("school_id",A.user.id).maybeSingle(); A.payout = po.data || null }
-  if(A.teacher || A.learner || A.school){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,school_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
+  if(A.teacher || A.learner || A.school){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,school_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,refund_hours,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -197,8 +198,13 @@ async function loadAdmin(){
   const [r,l,b,f] = await Promise.all([sb.rpc("admin_list_teachers"), sb.rpc("admin_list_learners"), sb.rpc("admin_list_bookings"), sb.rpc("admin_list_affiliates")]);
   const sr = await sb.rpc("admin_list_schools"); if(!sr.error) A.srows = sr.data;
   const aq = await sb.from("teacher_qualifications").select("*").order("created_at"); A.aquals = aq.data || [];
-  const am = await sb.rpc("admin_list_messages"); A.amsgs = am.data || [];
-  const ap = await sb.rpc("admin_list_payments"); A.apays = ap.data || [];
+  // payments and staff belong to the admin boss; an admin never asks for them
+  A.apays = []; A.staffRows = [];
+  if(A.boss){ const ap = await sb.rpc("admin_list_payments"); A.apays = ap.data || []; const st = await sb.rpc("boss_list_staff"); A.staffRows = st.data || [] }
+  const ex = await sb.rpc("staff_extras"); A.bx = {}; A.rx = {};
+  if(!ex.error && ex.data){ (ex.data.bookings||[]).forEach(x=>{ A.bx[x.id]=x }); (ex.data.reports||[]).forEach(x=>{ A.rx[x.id]=x }) }
+  const rq = await sb.rpc("staff_list_requests"); A.reqs = rq.error ? [] : (rq.data || []);
+  const lg = await sb.rpc("staff_list_audit",{p_limit:300}); A.log = lg.error ? [] : (lg.data || []);
   const wl = await sb.from("payout_waitlist").select("country"); A.await = wl.data || [];
   const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
   const at = await sb.rpc("admin_attention"); if(!at.error) A.attn = at.data;
@@ -211,14 +217,14 @@ async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=
 function chrome(){
   let a = $("#acct");
   if(!a){ a=document.createElement("a"); a.id="acct"; a.className="btn sm ghost"; $(".top .wrap").appendChild(a) }
-  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
-  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.admin ? "Admin" : A.aff ? "Affiliate dashboard" : A.school ? "My school" : "My account";
+  a.href = !A.user ? "#/account" : A.teacher ? "#/studio" : A.staffer ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
+  a.textContent = !A.user ? "Sign in" : A.teacher ? "My teacher account" : A.staffer ? "Admin" : A.aff ? "Affiliate dashboard" : A.school ? "My school" : "My account";
   let sl = $("#navschools");
   if(!sl && SHOW_SCHOOLS_MENU){ sl=document.createElement("a"); sl.id="navschools"; sl.href="#/schools"; sl.dataset.r="schools"; sl.textContent="Schools"; const nav=$("nav.main"); nav.insertBefore(sl, nav.querySelector('[data-r="help"]')) }
   a.onclick = A.user ? null : () => { A.mode="signin"; A.err=""; A.msg="" };
   let n = $("#navadmin");
-  if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
-  if(!A.admin && n) n.remove();
+  if(A.staffer && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
+  if(!A.staffer && n) n.remove();
   let al = $("#navalerts");
   if(A.user && !al){ al=document.createElement("a"); al.id="navalerts"; al.href="#/alerts"; al.dataset.r="alerts"; const nav=$("nav.main"); nav.insertBefore(al, nav.querySelector('[data-r="help"]')) }
   if(!A.user && al) al.remove();
@@ -439,17 +445,224 @@ async function sendMsg(f, other){
   const c=A.contacts.find(x=>x.other_id===other); if(c){ c.last_body=body; c.last_at=new Date().toISOString() }
   render(); $("#msgend")?.scrollIntoView({block:"nearest"}); $("#msg-body")?.focus();
 }
-// Admin: the latest messages, so a report can be checked against what was actually written.
-function adminMsgs(){
-  const rows=A.amsgs||[];
+/* ---------- staff: two levels. An admin decides about people and content; the admin boss decides about money,
+   staff and rules. The database enforces every limit below; these screens only show what each level may do. ---------- */
+
+// Staff sign in with a second step: a 6-digit code from an authenticator app. An admin cannot work without it.
+function twoStepPage(){
+  const enrolled = !!(A.staff && A.staff.enrolled), m = A.mfa;
+  const form = `<form novalidate onsubmit="event.preventDefault();twoStepVerify(this.code.value)" style="margin-top:12px">
+      <label class="field">6-digit code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="max-width:160px;font-size:20px;letter-spacing:.2em"></label>
+      <button class="btn" style="margin-top:10px">Continue</button></form>`;
+  const foot = `<p class="small muted" style="margin-top:16px">${A.admin?`<button class="btn sm ghost" onclick="A.twoStep=false;A.mfa=null;render()">Not now</button>`:`Signed in as ${esc(A.user.email)}. <button class="btn sm ghost" onclick="signOut()">Sign out</button>`}</p>`;
+  if(enrolled) return `<div class="wrap page" style="max-width:560px"><h2>Two-step sign-in</h2>
+    <p class="muted">Staff accounts need a second step. Open the authenticator app on your phone and type the code it shows for SeastackSchool.</p>${form}
+    <p class="small muted" style="margin-top:16px">Lost your phone? Ask an admin boss to reset your second step from the Staff tab.</p>${foot}</div>`;
+  if(!m) return `<div class="wrap page" style="max-width:560px"><h2>Set up two-step sign-in</h2>
+    <p class="muted">${A.admin?"":"Staff accounts cannot be used until this is done. "}You need an authenticator app on your phone, for example Google Authenticator or Microsoft Authenticator. Both are free. After this, signing in asks for your password and then a 6-digit code from that app.</p>
+    <button class="btn" onclick="twoStepStart()">I have the app. Start</button>${foot}</div>`;
+  return `<div class="wrap page" style="max-width:560px"><h2>Set up two-step sign-in</h2>
+    <ol class="muted" style="padding-left:20px"><li>Open the authenticator app and choose to add an account.</li><li>Scan this picture with the app.</li><li>Type the 6-digit code the app now shows.</li></ol>
+    <img src="${esc(m.qr)}" alt="Code to scan with your authenticator app" style="width:200px;height:200px;background:#fff;padding:8px;border-radius:8px;display:block">
+    <p class="small muted" style="overflow-wrap:anywhere">Cannot scan? Type this key into the app instead: <b>${esc(m.secret)}</b></p>${form}${foot}</div>`;
+}
+async function twoStepStart(){
+  const lf = await sb.auth.mfa.listFactors();
+  for(const f of ((lf.data && lf.data.all) || [])) if(f.status!=="verified") await sb.auth.mfa.unenroll({factorId:f.id});
+  const r = await sb.auth.mfa.enroll({factorType:"totp", friendlyName:"SeastackSchool "+new Date().toISOString().slice(0,19), issuer:"SeastackSchool"});
+  if(r.error) return toast(r.error.message);
+  A.mfa = {factorId:r.data.id, qr:r.data.totp.qr_code, secret:r.data.totp.secret}; render();
+}
+async function twoStepVerify(code){
+  code = String(code||"").replace(/\D/g,"");
+  if(code.length!==6) return toast("Type the 6-digit code from the app");
+  let fid = A.mfa && A.mfa.factorId;
+  if(!fid){ const lf = await sb.auth.mfa.listFactors(); fid = (((lf.data && lf.data.totp) || [])[0] || {}).id }
+  if(!fid) return toast("No second step is set up for this account yet");
+  const r = await sb.auth.mfa.challengeAndVerify({factorId:fid, code});
+  if(r.error) return toast("That code was not accepted. Codes change every 30 seconds, so type the newest one.");
+  A.mfa=null; A.twoStep=false; await refresh(); toast("Two-step sign-in is on");
+}
+
+// A private conversation is opened one at a time, for a stated reason, and every opening is logged.
+async function readConv(tid, lid, whyId, reportId){
+  const why = reportId ? "Checking a report about this teacher" : (whyId && $("#"+whyId) ? $("#"+whyId).value.trim() : "");
+  if(why.length<5) return toast("Write why you are reading these messages");
+  const r = await sb.rpc("staff_read_conversation",{p_teacher:tid,p_learner:lid,p_reason:why,p_report:reportId||null});
+  if(r.error) return toast(r.error.message);
+  A.conv = {tn:((A.rows||[]).find(x=>x.id===tid)||{}).full_name||"Teacher", ln:((A.lrows||[]).find(x=>x.id===lid)||{}).full_name||"Family", rows:r.data||[]};
+  const lg = await sb.rpc("staff_list_audit",{p_limit:300}); if(!lg.error) A.log = lg.data || [];
+  render(); const el=$("#convbox"); if(el) el.scrollIntoView({block:"nearest"});
+}
+function convBox(){
+  const c=A.conv; if(!c) return "";
+  return `<div class="box" id="convbox" style="margin:12px 0"><div class="results-head" style="margin:0 0 6px"><h3 style="margin:0">Messages between ${esc(c.tn)} and ${esc(c.ln)}</h3><button class="btn sm ghost" onclick="A.conv=null;render()">Close</button></div>
+    <p class="small muted" style="margin:0 0 6px">You opened this conversation; that is recorded in the activity log. You cannot write in it.</p>
+    ${c.rows.length?c.rows.map(m=>{ const w=new Date(m.created_at); return `<div style="padding:8px 0;border-top:1px solid var(--line)"><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${m.from_teacher?esc(c.tn)+" (teacher)":esc(c.ln)}</div><div style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(m.body)}</div></div>` }).join(""):`<p class="muted" style="margin:0">They have not written to each other.</p>`}</div>`;
+}
+
+// Requests: what an admin may not do alone (a refund, cancelling a paid booking, approving a school) is asked of the boss.
+const REQ_KIND = {refund:"Refund a payment", cancel_paid_booking:"Cancel a paid booking and refund it", school_approve:"Approve a school"};
+function reqWaiting(kind,id){ return (A.reqs||[]).some(q=>q.status==="pending" && q.kind===kind && q.target_id===id) }
+async function sendRequest(kind,id,inputId){
+  const el=$("#"+inputId), why=el?el.value.trim():"";
+  if(why.length<5) return toast(kind==="school_approve"?"Write what you found in the note first; the admin boss reads it":"Write the reason for the admin boss first");
+  const r = await sb.rpc("staff_request",{p_kind:kind,p_target:id,p_reason:why});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); toast("Sent to the admin boss"); render();
+}
+function adminRequests(){
+  const rows=A.reqs||[];
   return `<div class="wrap page">
     ${adminHead()}
-    <p class="muted">The latest 300 messages between teachers and families. Only people who share a booking can message each other. Read these when a report or a Help message needs checking.</p>
-    ${rows.length?`<div class="scroll"><table class="admin" style="min-width:680px"><thead><tr><th>When</th><th>From</th><th>To</th><th>Message</th></tr></thead><tbody>
-    ${rows.map(m=>{ const w=new Date(m.created_at), t=esc(m.teacher_name||"(teacher)")+` <span class="muted">(teacher)</span>`, l=esc(m.learner_name||"(family)");
-      return `<tr><td class="small">${fmtDay(w)}, ${fmtTime(w)}</td><td class="small">${m.from_teacher?t:l}</td><td class="small">${m.from_teacher?l:t}</td><td class="small" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(m.body)}</td></tr>` }).join("")}
-    </tbody></table></div>`:`<div class="empty">No messages have been sent yet.</div>`}
+    <p class="muted">${A.boss?"Admins cannot refund money, cancel a paid booking or approve a school. They ask here. Check each request before you approve it: the amount and the booking are checked again at that moment, and a request can be approved only once. You cannot decide a request you sent yourself.":"Refunds, cancelling a paid booking and approving a school are the admin boss's decisions. You ask from the Bookings or Schools tab; your requests and the answers show here."}</p>
+    ${rows.length?`<div class="scroll"><table class="admin" style="min-width:860px"><thead><tr><th>Asked</th><th>What</th><th>Reason</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+    ${rows.map(q=>{ const d=q.detail||{}, w=d.starts_at?new Date(d.starts_at):null; return `<tr>
+      <td class="small">${new Date(q.requested_at).toLocaleDateString()}<div class="muted" style="overflow-wrap:anywhere">${q.mine?"by you":"by "+esc(q.requested_email||"(account removed)")}</div></td>
+      <td><b>${REQ_KIND[q.kind]||esc(q.kind)}</b><div class="small">${esc(q.label)}</div>${w?`<div class="small muted">Lesson: ${fmtDay(w)}, ${fmtTime(w)}</div>`:""}${q.amount_cents?`<div class="small">Amount going back to the family: <b>${usd(q.amount_cents)}</b></div>`:""}</td>
+      <td class="small" style="max-width:280px;white-space:pre-line;overflow-wrap:anywhere">${esc(q.reason)}</td>
+      <td><span class="tag ${q.status==="approved"?"ok":q.status==="refused"?"bad":"group"}">${q.status==="pending"?"Waiting":q.status==="approved"?"Approved":"Refused"}</span>${q.decided_at?`<div class="small muted" style="margin-top:4px">${new Date(q.decided_at).toLocaleDateString()}${q.decided_email?" by "+esc(q.decided_email):""}</div>`:""}${q.decision_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(q.decision_note)}</div>`:""}</td>
+      <td>${q.status!=="pending"?"":!A.boss?`<span class="small muted">Waiting for the admin boss</span>`:q.mine?`<span class="small muted">Your own request. Another admin boss decides it.</span>`
+        :`<input id="dnote-${q.id}" aria-label="Note" placeholder="Note (optional)" maxlength="1000" value="${A.deciding===q.id?esc(A.decNote||""):""}"><div class="acts"><button class="btn sm" onclick="decideRequest('${q.id}',true)">${A.deciding===q.id?"Confirm: approve"+(q.amount_cents?" and refund "+usd(q.amount_cents):""):"Approve"}</button><button class="btn sm ghost" onclick="decideRequest('${q.id}',false)">Refuse</button></div>`}</td>
+    </tr>` }).join("")}</tbody></table></div>`:`<div class="empty">No requests yet.</div>`}
   </div>`;
+}
+async function decideRequest(id, yes){
+  const note = ($("#dnote-"+id) ? $("#dnote-"+id).value.trim() : "") || null;
+  if(yes && A.deciding!==id){ A.deciding=id; A.decNote=note||""; render(); return }
+  A.deciding=null;
+  const q=(A.reqs||[]).find(x=>x.id===id)||{};
+  const r = await sb.rpc("boss_decide_request",{p_id:id,p_approve:yes,p_note:note});
+  if(r.error){ toast(r.error.message); render(); return }
+  if(yes && q.kind!=="school_approve"){ try{ await sb.functions.invoke("stripe-refunds",{body:{}}) }catch(e){} }
+  await loadAdmin(); await loadPublic(); toast(yes?"Approved and carried out":"Refused"); render();
+}
+
+// Emergency stop: any staff member can pause new bookings; only the boss starts them again.
+async function pauseNow(){
+  const el=$("#pause-why"), why=el?el.value.trim():"";
+  if(why.length<5) return toast("Write why booking should be paused");
+  const r = await sb.rpc("staff_pause_bookings",{p_reason:why});
+  if(r.error) return toast(r.error.message);
+  await loadPublic(); await loadAdmin(); toast("New bookings are paused. The admin boss has been told."); render();
+}
+async function setPaused(on){
+  const el=$("#set-pause-note"), note=el?el.value.trim():"";
+  const r = await sb.rpc("boss_set_settings",{p_paused:on,p_pause_note:on?(note||null):null});
+  if(r.error) return toast(r.error.message);
+  await loadPublic(); await loadAdmin(); toast(on?"New bookings are paused":"Bookings are open again"); render();
+}
+async function saveRules(){
+  const fee=parseInt($("#set-fee").value,10), hours=parseInt($("#set-hours").value,10);
+  if(!(fee>=0 && fee<=50)) return toast("The fee must be between 0 and 50 percent");
+  if(!(hours>=0 && hours<=168)) return toast("The refund window must be between 0 and 168 hours");
+  if(fee===PAY.fee && hours===PAY.hours) return toast("Nothing changed");
+  if(!A.rules || A.rules.fee!==fee || A.rules.hours!==hours){ A.rules={fee,hours}; render(); return }
+  A.rules=null;
+  const r = await sb.rpc("boss_set_settings",{p_fee_percent:fee,p_refund_hours:hours});
+  if(r.error) return toast(r.error.message);
+  await loadPublic(); await loadAdmin(); toast("Saved. The new rules apply to lessons booked from now on."); render();
+}
+function bossSettingsBox(){
+  const d=A.rules||{fee:PAY.fee,hours:PAY.hours};
+  return `<div class="box" style="margin-bottom:14px"><h3>Rules for new bookings</h3>
+      <p class="muted small" style="margin:0 0 10px">A change applies to lessons booked from now on. A lesson that is already paid for keeps the fee and the refund window it was booked under. Every change is recorded in the activity log.</p>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end"><label class="field" style="margin:0">SeastackSchool's fee, percent<input id="set-fee" type="number" min="0" max="50" value="${d.fee}" style="max-width:120px"></label>
+        <label class="field" style="margin:0">Full refund if cancelled this many hours before<input id="set-hours" type="number" min="0" max="168" value="${d.hours}" style="max-width:120px"></label>
+        <button class="btn sm" onclick="saveRules()">${A.rules?"Confirm: fee "+d.fee+"%, refund window "+d.hours+" hours":"Save"}</button></div></div>
+    <div class="box" style="margin-bottom:14px"><h3>Pause new bookings</h3>
+      ${PAY.paused?`<p style="margin:0 0 10px"><b>Paused.</b> Nobody can book. Lessons already booked go ahead, and nothing becomes free.${PAY.pauseNote?" Shown to visitors: "+esc(PAY.pauseNote):""}</p><button class="btn sm" onclick="setPaused(false)">Open bookings again</button>`
+        :`<p class="muted small" style="margin:0 0 10px">Stops every new booking, paid or free, without changing whether lessons are paid. Use it for a payment fault or a safety incident. Switching payment off is different: it makes booking free.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="set-pause-note" aria-label="Short note shown to visitors" placeholder="Short note shown to visitors (optional)" maxlength="300" style="flex:1;min-width:200px"><button class="btn sm ghost" onclick="setPaused(true)">Pause new bookings</button></div>`}</div>`;
+}
+
+// Activity log: what staff did, in plain words. Written by the database; nobody can change or delete a line.
+function auditWhat(x){
+  const d=x.detail||{}, has=k=>Object.prototype.hasOwnProperty.call(d,k), to=k=>d[k]?d[k][1]:undefined, from=k=>d[k]?d[k][0]:undefined;
+  const st=(noun)=>has("status") ? (to("status")==="approved"||to("status")==="active" ? (from("status")==="suspended"?"Restored ":"Approved ")+noun : to("status")==="suspended" ? "Suspended "+noun : "Set "+noun+" to "+to("status")) : null;
+  switch(x.action){
+    case "teacher.change": return st("a teacher") || (has("identity_checked_at") ? (to("identity_checked_at")?"Marked a teacher's identity as checked":"Removed a teacher's identity check") : has("photo") ? "Removed a profile photo" : "Changed a teacher");
+    case "learner.change": return st("a student or parent account") || "Changed an account";
+    case "school.change": return st("a school") || "Changed a school";
+    case "affiliate.change": return st("an affiliate") || "Changed an affiliate";
+    case "review.change": return to("hidden") ? "Hid a rating" : "Showed a rating again";
+    case "report.change": return to("status")==="open" ? "Reopened a report" : "Marked a report as dealt with";
+    case "help.change": return to("status")==="open" ? "Reopened a Help message" : "Marked a Help message as dealt with";
+    case "qualification.change": return to("verified_at") ? "Verified a qualification" : "Removed a qualification's verification";
+    case "booking.change": return has("status") ? "Cancelled a booking" : "Decided attendance: "+(to("attendance")==="no_show"?"did not attend":"attended");
+    case "payment.change": return to("status")==="refund_due" ? "Sent a refund" : "Changed a payment to "+to("status");
+    case "settings.change": return [has("enabled")?"Switched online payment "+(to("enabled")?"on":"off"):"", has("paused")?(to("paused")?"Paused new bookings":"Opened bookings again"):"", has("fee_percent")?"Changed the fee from "+from("fee_percent")+"% to "+to("fee_percent")+"%":"", has("refund_hours")?"Changed the refund window from "+from("refund_hours")+" to "+to("refund_hours")+" hours":""].filter(Boolean).join("; ") || "Changed a setting";
+    case "bookings.pause": return "Paused new bookings (emergency)";
+    case "documents.open": return "Opened private documents";
+    case "conversation.read": return "Read a private conversation";
+    case "request.send": return "Asked the admin boss: "+(REQ_KIND[d.kind]||"a decision").toLowerCase();
+    case "request.approve": return "Approved a request: "+(REQ_KIND[d.kind]||"").toLowerCase();
+    case "request.refuse": return "Refused a request: "+(REQ_KIND[d.kind]||"").toLowerCase();
+    case "staff.add": return "Added staff as "+(d.role==="boss"?"admin boss":"admin");
+    case "staff.role": return "Changed a staff level to "+(d.role==="boss"?"admin boss":"admin");
+    case "staff.remove": return "Removed staff";
+    case "staff.two_step_reset": return "Reset a staff member's second step";
+    default: return x.action;
+  }
+}
+function adminLog(){
+  const rows=A.log||[], f=A.logFilter||"all";
+  const sens=x=>["documents.open","conversation.read"].includes(x.action), money=x=>["payment.change","settings.change","bookings.pause"].includes(x.action)||x.action.startsWith("request.");
+  const list=f==="private"?rows.filter(sens):f==="money"?rows.filter(money):f==="staff"?rows.filter(x=>x.action.startsWith("staff.")):rows;
+  const chip=(k,l)=>`<button class="chip" aria-pressed="${f===k}" onclick="A.logFilter='${k}';render()">${l}</button>`;
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">${A.boss?"Everything staff have done, newest first":"What you have done, newest first. The admin boss sees everyone's"}: who, what, to whom and why. The database writes each line by itself, including when someone opens a private document or reads a conversation. Nobody, the admin boss included, can change or delete a line. It starts on the day this log was switched on.</p>
+    <div class="chips" style="margin-bottom:14px">${chip("all","All ("+rows.length+")")}${chip("private","Private documents and messages ("+rows.filter(sens).length+")")}${chip("money","Money, requests and settings ("+rows.filter(money).length+")")}${A.boss?chip("staff","Staff ("+rows.filter(x=>x.action.startsWith("staff.")).length+")"):""}</div>
+    ${list.length?`<div class="scroll"><table class="admin" style="min-width:820px"><thead><tr><th>When</th><th>Who</th><th>What</th><th>About</th><th>Reason</th></tr></thead><tbody>
+    ${list.map(x=>{ const w=new Date(x.at); return `<tr><td class="small" style="white-space:nowrap">${fmtDay(w)}, ${fmtTime(w)}</td>
+      <td class="small" style="overflow-wrap:anywhere">${esc(x.actor_email||"(account removed)")}<div class="muted">${x.actor_role==="boss"?"Admin boss":"Admin"}</div></td>
+      <td>${esc(auditWhat(x))}</td><td class="small" style="overflow-wrap:anywhere">${esc(x.target_kind==="review"?"":x.target_label||"")}</td>
+      <td class="small" style="max-width:260px;overflow-wrap:anywhere">${esc(x.reason||"")}</td></tr>` }).join("")}</tbody></table></div>${rows.length>=300?`<p class="small muted">Showing the 300 most recent lines.</p>`:""}`
+    :`<div class="empty">${rows.length?"Nothing in this list.":"Nothing has been recorded yet."}</div>`}
+  </div>`;
+}
+
+// Staff: only the admin boss adds or removes people. There is always at least one admin boss.
+function adminStaff(){
+  const rows=A.staffRows||[], bosses=rows.filter(s=>s.role==="boss" && s.confirmed).length;
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">An <b>admin</b> approves and suspends accounts, checks documents and qualifications, and handles reports. An <b>admin boss</b> also handles money, schools, settings and staff, and can overrule an admin. A staff member uses an email address that has no other SeastackSchool account, so nobody can decide on their own teacher or affiliate account.</p>
+    ${bosses<2?`<div class="notice" style="margin:0 0 14px"><b>There is one admin boss.</b> If that person loses access to their email or phone, nobody can add staff or reach the money settings. Add a second admin boss, held by a second trusted person.</div>`:""}
+    <div class="box" style="margin-bottom:14px"><h3>Add a staff member</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end"><label class="field" style="margin:0;flex:1;min-width:220px">Their email address<input id="st-email" type="email" autocomplete="off" maxlength="200"></label>
+        <label class="field" style="margin:0">Level<select id="st-role"><option value="admin">Admin</option><option value="boss">Admin boss</option></select></label><button class="btn sm" onclick="staffAdd()">Add</button></div>
+      <p class="small muted" style="margin:10px 0 0">Then ask them to create an account on SeastackSchool with exactly that address (any account type) and confirm the email. When they sign in they are asked to set up two-step sign-in; an admin cannot work without it.</p></div>
+    <div class="scroll"><table class="admin" style="min-width:760px"><thead><tr><th>Email</th><th>Level</th><th>Account</th><th>Action</th></tr></thead><tbody>
+    ${rows.map((s,i)=>`<tr><td style="overflow-wrap:anywhere"><b>${esc(s.email)}</b>${s.me?` <span class="small muted">(you)</span>`:""}</td>
+      <td><span class="tag ${s.role==="boss"?"ok":"group"}">${s.role==="boss"?"Admin boss":"Admin"}</span></td>
+      <td class="small">${!s.signed_up?"Has not created the account yet":!s.confirmed?"Email not confirmed yet":"Active"}${s.signed_up?`<div class="${s.two_step?"muted":""}" ${s.two_step?"":`style="color:var(--rose)"`}>Two-step sign-in: ${s.two_step?"on":"not set up"}</div>`:""}${s.last_sign_in_at?`<div class="muted">Last signed in ${new Date(s.last_sign_in_at).toLocaleDateString()}</div>`:""}</td>
+      <td>${s.me?`<span class="small muted">Another admin boss changes your account</span>`:`<div class="acts" style="margin:0"><button class="btn sm ghost" onclick="staffRole(${i},'${s.role==="boss"?"admin":"boss"}')">${A.staffAsk==="role"+i?"Confirm":"Make "+(s.role==="boss"?"admin":"admin boss")}</button>${s.two_step?`<button class="btn sm ghost" onclick="staffReset(${i})">${A.staffAsk==="reset"+i?"Confirm reset":"Reset two-step (lost phone)"}</button>`:""}<button class="btn sm ghost" onclick="staffRemove(${i})">${A.staffAsk==="rm"+i?"Confirm remove":"Remove"}</button></div>`}</td></tr>`).join("")}
+    </tbody></table></div>
+  </div>`;
+}
+async function staffDone(r, msg){
+  A.staffAsk=null;
+  if(r.error){ toast(r.error.message); render(); return }
+  await loadAdmin(); toast(msg); render();
+}
+async function staffAdd(){
+  const email=$("#st-email").value.trim().toLowerCase(), role=$("#st-role").value;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter their email address");
+  await staffDone(await sb.rpc("boss_add_staff",{p_email:email,p_role:role}), "Added. Ask them to create their account with that address.");
+}
+function staffConfirm(key){ if(A.staffAsk!==key){ A.staffAsk=key; render(); return false } return true }
+async function staffRole(i, role){
+  const s=(A.staffRows||[])[i]; if(!s || !staffConfirm("role"+i)) return;
+  await staffDone(await sb.rpc("boss_set_staff_role",{p_email:s.email,p_role:role}), "Level changed");
+}
+async function staffRemove(i){
+  const s=(A.staffRows||[])[i]; if(!s || !staffConfirm("rm"+i)) return;
+  await staffDone(await sb.rpc("boss_remove_staff",{p_email:s.email}), "Removed from staff");
+}
+async function staffReset(i){
+  const s=(A.staffRows||[])[i]; if(!s || !staffConfirm("reset"+i)) return;
+  await staffDone(await sb.rpc("boss_reset_two_step",{p_email:s.email}), "Second step reset. They set it up again when they next sign in.");
 }
 
 /* ---------- address help: browser autofill, country list, place suggestions ---------- */
@@ -528,7 +741,8 @@ function payNote(b){
 }
 function refundHint(b){
   const p=A.pays.find(x=>x.booking_id===b.id && x.status==="paid"); if(!p) return "";
-  return Date.parse(b.starts_at)-Date.now() >= PAY.hours*36e5 ? " (full refund)" : " (no refund: under "+PAY.hours+" hours' notice)";
+  const h = p.refund_hours ?? PAY.hours;      // the refund window this lesson was booked under
+  return Date.parse(b.starts_at)-Date.now() >= h*36e5 ? " (full refund)" : " (no refund: under "+h+" hours' notice)";
 }
 // The database decides which payments are refunded; this asks the server to send those refunds now.
 function settleRefunds(){
@@ -600,6 +814,7 @@ function adminPayments(){
     ${adminHead()}
     <div class="${PAY.enabled?"ok":"notice"}" style="margin:0 0 14px"><b>Online payment is ${PAY.enabled?"ON":"OFF"}.</b> ${PAY.enabled?"Families pay when they book, and only teachers who have connected Stripe can be booked.":"Booking is free and nothing is charged. Switch it on only after your Stripe keys are saved and a test payment has worked."}
       <div style="margin-top:10px"><button class="btn sm ${PAY.enabled?"ghost":""}" onclick="setPayments(${!PAY.enabled})">${A.payConfirm?"Confirm: switch payment "+(PAY.enabled?"off":"on"):"Switch payment "+(PAY.enabled?"off":"on")}</button></div></div>
+    ${bossSettingsBox()}
     <p class="muted">SeastackSchool keeps ${PAY.fee}% of each lesson. A family that cancels ${PAY.hours} hours or more before the lesson, and any lesson cancelled by the teacher or by you, is refunded in full automatically. Paid so far: <b>${usd(gross)}</b> in ${kept.length} ${kept.length===1?"lesson":"lessons"}, of which your fee is <b>${usd(fees)}</b> before Stripe's card charges.</p>
     ${(w=>{ if(!w.length) return ""; const by={}; w.forEach(x=>{ by[x.country]=(by[x.country]||0)+1 }); return `<div class="box" style="margin-bottom:14px"><h3>Teachers waiting to be paid in other countries</h3><p class="muted small" style="margin:0 0 8px">Stripe pays teachers only in Canada, the United States, the United Kingdom, Switzerland and most of Europe. These teachers asked to be told when their country is added.</p><div class="chips">${Object.keys(by).sort((p,q)=>by[q]-by[p]).map(k=>`<span class="chip">${esc(k)}: ${by[k]}</span>`).join("")}</div></div>` })(A.await||[])}
     ${rows.length?`<div class="scroll"><table class="admin" style="min-width:860px"><thead><tr><th>Paid</th><th>Lesson</th><th>Family</th><th>Teacher</th><th>Amount</th><th>Your fee</th><th>Status</th><th>Action</th></tr></thead><tbody>
@@ -783,7 +998,7 @@ studio = function(){
   if(!A.user){ kindFor("studio","teacher"); return authPage() }
   const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.teacher) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
-    <div class="notice">${A.admin?`This is an admin account, so it has no teacher profile. <a href="#/admin">Manage teachers</a>`:A.learner?`This is a ${A.learner.role} account, so it has no teacher studio. To teach, create a separate teacher account with a different email. <a href="#/account">Open my account</a>`:"This account has no teacher profile."}</div></div>`;
+    <div class="notice">${A.staffer?`This is an admin account, so it has no teacher profile. <a href="#/admin">Manage teachers</a>`:A.learner?`This is a ${A.learner.role} account, so it has no teacher studio. To teach, create a separate teacher account with a different email. <a href="#/account">Open my account</a>`:"This account has no teacher profile."}</div></div>`;
   const tabs=[["profile","My profile"],["list","My classes"],["bookings","Bookings"]];
   if(!tabs.some(t=>t[0]===TAB)) TAB="profile";
   const local = `<p class="small muted">This tool is saved in this browser only for now.</p>`;
@@ -1001,7 +1216,13 @@ startTeaching = function(){ A.kind="teacher"; if(!A.user){ A.mode="signup"; A.er
 
 /* ---------- admin: manage teachers ---------- */
 function adminPage(){
+  if(!A.admin && A.staffer) return twoStepPage();
   if(!A.admin) return `<div class="wrap page"><h2>Manage accounts</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/account">Sign in</a>`}</div></div>`;
+  if(A.twoStep) return twoStepPage();
+  if(["pay","staff"].includes(A.adminTab) && !A.boss) A.adminTab="teachers";
+  if(A.adminTab==="requests") return adminRequests();
+  if(A.adminTab==="log") return adminLog();
+  if(A.adminTab==="staff") return adminStaff();
   if(A.adminTab==="learners") return adminLearners();
   if(A.adminTab==="bookings") return adminBookings();
   if(A.adminTab==="visits") return adminVisits();
@@ -1009,7 +1230,6 @@ function adminPage(){
   if(A.adminTab==="schools") return adminSchools();
   if(A.adminTab==="reviews") return adminReviews();
   if(A.adminTab==="inbox") return adminInbox();
-  if(A.adminTab==="msgs") return adminMsgs();
   if(A.adminTab==="pay") return adminPayments();
   const rows=A.rows||[], n=s=>rows.filter(r=>r.status===s).length;
   const list=A.filter==="all"?rows:rows.filter(r=>r.status===A.filter);
@@ -1031,7 +1251,7 @@ function adminPage(){
           <p style="margin:6px 0"><b>Education</b><br>${esc(r.education||"(empty)")}</p></details></td>
       <td>${r.class_count} ${r.class_count===1?"class":"classes"}${(t=>t?`<div class="small" style="margin-top:4px">${rankTag(t)} <span class="muted">${t.lessons} taught</span></div>`:"")(teacher(r.id))}${r.school_name?`<div class="small muted">School: ${esc(r.school_name)}</div>`:""}
         <div class="small" style="margin-top:6px">${r.identity_checked_at?`<span class="tag ok">Identity checked</span> ${new Date(r.identity_checked_at).toLocaleDateString()}`:`<span class="tag group">Identity not checked</span>`}</div>
-        <div class="small" style="margin-top:6px">${A.tdocsAdmin[r.id]?(A.tdocsAdmin[r.id].length?A.tdocsAdmin[r.id].map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showTeacherDocs('${r.id}')">Show documents</button>`}</div>
+        <div class="small" style="margin-top:6px">${A.tdocsAdmin[r.id]?(A.tdocsAdmin[r.id].length?A.tdocsAdmin[r.id].map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`${whyBox("t-"+r.id)}<button class="btn sm ghost" style="margin-top:4px" onclick="showTeacherDocs('${r.id}')">Show documents</button>`}</div>
         <div class="acts"><button class="btn sm ghost" onclick="setIdentity('${r.id}',${!r.identity_checked_at})">${r.identity_checked_at?"Remove identity check":"Mark identity checked"}</button></div>
         ${adminQuals(r.id)}</td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
@@ -1053,9 +1273,13 @@ async function setStatus(id,status){
 function adminHead(){
   const tab=(k,l)=>`<button role="tab" aria-selected="${A.adminTab===k}" onclick="A.adminTab='${k}';render()">${l}</button>`;
   return `<div class="results-head"><h2 style="margin:0">Manage accounts</h2>
-      <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
+      <span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="tag ${A.boss?"ok":"group"}">${A.boss?"Admin boss":"Admin"}</span> ${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span></div>
+    ${A.boss && !A.staff.enrolled?`<div class="notice" style="margin:12px 0"><b>Protect this account.</b> It can refund money and add staff, and today it is protected by a password only. Add a second step: a code from an app on your phone. <button class="btn sm" style="margin-left:6px" onclick="A.twoStep=true;render()">Set up two-step sign-in</button></div>`:""}
+    ${PAY.paused?`<div class="notice" style="margin:12px 0"><b>New bookings are paused.</b> Nobody can book until the admin boss starts them again${A.boss?` under Payments and settings`:""}. Lessons already booked go ahead.</div>`:""}
     ${attentionPanel()}
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("msgs","Messages ("+(A.amsgs||[]).length+")")}${tab("pay","Payments")}${tab("visits","Visits")}</div>`;
+    ${convBox()}
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("requests",(A.boss?"Requests from admins":"My requests to the boss")+" ("+(A.reqs||[]).filter(q=>q.status==="pending").length+")")}${A.boss?tab("pay","Payments and settings"):""}${A.boss?tab("staff","Staff ("+(A.staffRows||[]).length+")"):""}${tab("log","Activity log")}${tab("visits","Visits")}</div>
+    ${PAY.paused?"":`<details style="margin:0 0 14px"><summary class="small">Emergency: pause all new bookings</summary><p class="small muted" style="margin:8px 0">Use this for a payment fault or a safety incident. Nobody can book until the admin boss starts bookings again. Lessons already booked go ahead. The admin boss is told at once.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="pause-why" aria-label="Why booking should be paused" placeholder="Why? (required)" maxlength="300" style="flex:1;min-width:200px"><button class="btn sm ghost" onclick="pauseNow()">Pause new bookings</button></div></details>`}`;
 }
 function adminLearners(){
   const rows=A.lrows||[];
@@ -1093,8 +1317,12 @@ function adminBookings(){
       <td>${esc(b.attendee_name)}</td>
       <td>${esc(b.learner_name||"(no name)")} <span class="small muted">(${b.learner_role})</span><div class="small">${esc(b.learner_email)}</div><div class="small muted">Booked ${new Date(b.created_at).toLocaleDateString()}</div></td>
       <td><span class="tag ${b.status==="cancelled"?"bad":upcoming?"ok":"group"}">${b.status==="cancelled"?"Cancelled":upcoming?"Booked":b.attendance==="no_show"?"Did not attend":"Took place"}</span>${b.attendance_disputed?`<div class="small" style="color:var(--rose);margin-top:4px">The family disputes this</div>`:""}${b.attendance_locked?`<div class="small muted" style="margin-top:4px">Attendance decided by you</div>`:""}${b.status==="cancelled"?`<div class="small muted" style="margin-top:4px">by ${who[b.cancelled_by_kind]||"someone"}, ${new Date(b.cancelled_at).toLocaleDateString()}</div>`:""}${b.emailed?"":`<div class="small muted" style="margin-top:4px">No booking email sent</div>`}${b.mode==="in_person"?`<div class="small muted" style="margin-top:4px">In person</div>`:b.joined_at?`<div class="small muted" style="margin-top:4px">Opened the lesson at ${fmtTime(new Date(b.joined_at))}</div>`:""}</td>
-      <td>${upcoming?`<button class="btn sm ghost" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel":"Cancel booking"}</button>`
-          :b.status==="booked"?`<div class="acts" style="margin:0"><button class="btn sm ghost" onclick="markAttendance('${b.id}','attended')">Attended</button><button class="btn sm ghost" onclick="markAttendance('${b.id}','no_show')">Did not attend</button></div>`:""}</td>
+      <td>${(x=>{ const paid=x.pay_status==="paid", refundable=paid||x.pay_status==="kept";
+          const ask=(kind,id,label)=>reqWaiting(kind,id)?`<span class="tag group">Waiting for the admin boss</span>`:`<input id="bwhy-${b.id}" aria-label="Reason for the admin boss" placeholder="Reason for the boss (required)" maxlength="1000"><div class="acts"><button class="btn sm ghost" onclick="sendRequest('${kind}','${id}','bwhy-${b.id}')">${label}</button></div>`;
+          return (upcoming ? (paid && !A.boss ? ask("cancel_paid_booking",b.id,"Ask the boss to cancel and refund") : `<button class="btn sm ghost" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel"+(paid?" and refund":""):"Cancel booking"}</button>`)
+            : b.status==="booked"?`<div class="acts" style="margin:0"><button class="btn sm ghost" onclick="markAttendance('${b.id}','attended')">Attended</button><button class="btn sm ghost" onclick="markAttendance('${b.id}','no_show')">Did not attend</button></div>`:"")
+            + (!upcoming && refundable && !A.boss ? `<div style="margin-top:6px">${ask("refund",x.payment_id,"Ask the boss for a refund")}</div>` : "")
+            + (A.boss && x.has_msgs ? `<div style="margin-top:6px"><input id="cwhy-${b.id}" aria-label="Why you are reading these messages" placeholder="Why read their messages? (required)" maxlength="300"><div class="acts"><button class="btn sm ghost" onclick="readConv('${x.teacher_id}','${x.learner_id}','cwhy-${b.id}',null)">Read their messages</button></div></div>` : "") })(A.bx[b.id]||{})}</td>
     </tr>` }).join("")}</tbody></table></div>${rows.length>=500?`<p class="small muted">Showing the 500 most recent bookings.</p>`:""}`
     :`<div class="empty">${rows.length?"No bookings in this list.":"No lessons have been booked yet."}</div>`}
   </div>`;
@@ -1388,7 +1616,26 @@ async function dropTDoc(i){
   if(r.error) return toast(r.error.message);
   A.tdocs = await listDocs(A.user.id, "teacher-docs"); toast("Document removed"); render();
 }
-async function showTeacherDocs(id){ A.tdocsAdmin[id] = await listDocs(id, "teacher-docs"); render() }
+// A school opens its own teachers' qualification documents directly. Staff give a reason first: the opening is
+// logged, and only then does the database let the files be read, for ten minutes.
+async function showTeacherDocs(id){
+  if(A.admin && !(await staffOpenDocs("teacher-docs", id, "t-"+id))) return;
+  A.tdocsAdmin[id] = await listDocs(id, "teacher-docs", A.admin ? 600 : 3600); render();
+}
+async function staffOpenDocs(bucket, id, key){
+  const why = readWhy(key);
+  if(why.length<5){ toast("Choose or write why you are opening these documents"); return false }
+  const r = await sb.rpc("staff_open_documents",{p_bucket:bucket,p_owner:id,p_reason:why});
+  if(r.error){ toast(r.error.message); return false }
+  return true;
+}
+function whyBox(key){
+  return `<select id="why-${key}" aria-label="Why you are opening these documents" style="max-width:100%"><option value="">Why are you opening these?</option><option>Checking a new account</option><option>Verifying a qualification</option><option>Handling a report</option><option value="Other">Another reason (write it)</option></select><input id="whyx-${key}" aria-label="More detail" placeholder="More detail (optional)" maxlength="300" style="margin-top:4px">`;
+}
+function readWhy(key){
+  const s=$("#why-"+key)?.value||"", x=$("#whyx-"+key)?.value.trim()||"";
+  return s==="Other" ? x : s ? s+(x?": "+x:"") : "";
+}
 /* ---------- qualifications: the public sees the title only; the admin verifies the document behind each one ---------- */
 const qualStatus = q => q.verified_at ? `<span class="tag ok">Verified by SeastackSchool</span>${q.school_verified_at?` <span class="tag ok">and by the school</span>`:""}` : q.school_verified_at ? `<span class="tag ok">Verified by the school</span>` : q.doc_name ? `<span class="tag group">Waiting for verification</span>` : `<span class="tag bad">Document needed</span>`;
 // The teacher's own view of their level and what the next one needs.
@@ -1512,6 +1759,7 @@ function attentionPanel(){
   const a=A.attn; if(!a) return "";
   const go=(tab,extra)=>`A.adminTab='${tab}';${extra||""}render()`;
   const items=[
+    [A.boss?(A.reqs||[]).filter(q=>q.status==="pending" && !q.mine).length:0,"request","requests","from an admin for your decision",go("requests")],
     [a.teachers,"teacher","teachers","waiting for approval",go("teachers","A.filter='pending';")],
     [a.qualifications,"qualification","qualifications","waiting for you to verify the document",go("teachers","A.filter='all';")],
     [a.schools,"school","schools","waiting for review",go("schools","A.sfilter='pending';")],
@@ -1530,13 +1778,13 @@ function adminInbox(){
   return `<div class="wrap page">
     ${adminHead()}
     <h3>Reports about teachers</h3>
-    <p class="muted">Sent by signed-in students, parents and others from a teacher's profile. The teacher is not told who reported them. You can suspend the teacher from the Teachers tab.</p>
+    <p class="muted">Sent by signed-in students, parents and others from a teacher's profile. The teacher is not told who reported them. You can suspend the teacher from the Teachers tab. Where the person who reported and the teacher have written to each other, you can read that one conversation; each reading is recorded in the activity log.</p>
     ${ib.reports.length?`<div class="scroll"><table class="admin" style="min-width:800px"><thead><tr><th>Teacher</th><th>About</th><th>What happened</th><th>From</th><th>Date</th><th>Action</th></tr></thead><tbody>
     ${ib.reports.map(r=>`<tr><td><b>${esc(r.teacher_name||"(no name)")}</b><div class="small">${esc(r.teacher_email)}</div><div class="small muted">Teacher is ${esc(r.teacher_status)}</div></td>
       <td><span class="tag ${r.category==="safety"?"bad":"group"}">${cats[r.category]||esc(r.category)}</span></td>
       <td class="small" style="max-width:300px;white-space:pre-line">${esc(r.details)}${r.admin_note?`<div class="muted" style="margin-top:4px">Your note: ${esc(r.admin_note)}</div>`:""}</td>
       <td class="small">${esc(r.reporter_email||"(account deleted)")}</td><td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
-      <td>${r.status==="open"?`<input id="rnote-${r.id}" aria-label="Note" placeholder="Note (optional)" maxlength="1000">`:""}<div class="acts">${done("report",r.id,r.status)}</div></td></tr>`).join("")}</tbody></table></div>`
+      <td>${r.status==="open"?`<input id="rnote-${r.id}" aria-label="Note" placeholder="Note (optional)" maxlength="1000">`:""}<div class="acts">${done("report",r.id,r.status)}${(x=>x.has_msgs?`<button class="btn sm ghost" onclick="readConv('${x.teacher_id}','${x.reporter_id}',null,'${r.id}')">Read their messages</button>`:"")(A.rx[r.id]||{})}</div></td></tr>`).join("")}</tbody></table></div>`
     :`<div class="empty">No reports.</div>`}
     <h3 style="margin-top:28px">Help messages</h3>
     <p class="muted">Sent from the Help page. Reply to the person from your own email; this list only tracks what has been dealt with.</p>
@@ -1645,12 +1893,12 @@ function schoolTag(t){
   const s = t && t.school && A.schools.find(x=>x.id===t.school);
   return s ? ` · <a href="#/school/${s.id}">${esc(s.name)}</a>` : "";
 }
-async function listDocs(folder, bucket="school-docs"){
+async function listDocs(folder, bucket="school-docs", ttl=3600){
   const l = await sb.storage.from(bucket).list(folder, {limit:50, sortBy:{column:"created_at", order:"asc"}});
   const files = (l.data||[]).filter(f=>f.name && f.id);
   if(!files.length) return [];
   const paths = files.map(f=>folder+"/"+f.name);
-  const s = await sb.storage.from(bucket).createSignedUrls(paths, 3600);
+  const s = await sb.storage.from(bucket).createSignedUrls(paths, ttl);
   return files.map((f,i)=>({name:f.name.replace(/^\d+-/,""), path:paths[i], url:(s.data||[])[i]?.signedUrl || ""}));
 }
 async function loadSchoolExtras(){
@@ -1826,7 +2074,7 @@ function adminSchools(){
   const act=(id,s,l,ghost)=>`<button class="btn sm ${ghost?"ghost":""}" onclick="setSchoolStatus('${id}','${s}')">${l}</button>`;
   return `<div class="wrap page">
     ${adminHead()}
-    <p class="muted">Open each school's documents before approving it. An approved school gets a public page and can approve its own teachers. Suspending a school hides its page and the teachers it approved; restoring it brings them back.</p>
+    <p class="muted">${A.boss?"":"Approving or restoring a school is the admin boss's decision: open the documents, write what you found in the note, and ask. You can suspend a school yourself to protect families. "}Open each school's documents before approving it. An approved school gets a public page and can approve its own teachers. Suspending a school hides its page and the teachers it approved; restoring it brings them back.</p>
     <div class="chips" style="margin-bottom:14px">${chip("pending","Waiting for review ("+n("pending")+")")}${chip("approved","Approved ("+n("approved")+")")}${chip("suspended","Suspended ("+n("suspended")+")")}${chip("all","All ("+rows.length+")")}</div>
     ${list.length?`<div class="scroll"><table class="admin" style="min-width:900px"><thead><tr><th>School</th><th>Details</th><th>Documents</th><th>Teachers</th><th>Joined</th><th>Status</th><th>Decision</th></tr></thead><tbody>
     ${list.map(r=>{ const docs=A.sdocs[r.id]; return `<tr>
@@ -1834,17 +2082,20 @@ function adminSchools(){
         <div class="small muted">Contact: ${esc(r.contact_name||"(none)")}</div><div class="small muted">${esc([r.city,r.country].filter(Boolean).join(", ")||"(no location yet)")}</div>
         ${r.website?`<div class="small"><a href="${esc(r.website)}" target="_blank" rel="noopener noreferrer">Website</a></div>`:""}</td>
       <td class="small"><details style="padding:6px 10px"><summary class="small">Read</summary><p style="margin:6px 0"><b>About</b><br>${esc(r.about||"(empty)")}</p><p style="margin:6px 0"><b>Kind and year founded</b><br>${esc([r.school_type,r.founded_year].filter(Boolean).join(", ")||"(empty)")}</p><p style="margin:6px 0"><b>Registration and accreditation</b><br>${esc(r.accreditation||"(empty)")}</p><p style="margin:6px 0"><b>Note to reviewer</b><br>${esc(r.reviewer_note||"(empty)")}</p></details></td>
-      <td class="small">${docs?(docs.length?docs.map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`<button class="btn sm ghost" onclick="showSchoolDocs('${r.id}')">Show documents</button>`}</td>
+      <td class="small">${docs?(docs.length?docs.map(d=>d.url?`<div style="overflow-wrap:anywhere"><a href="${esc(d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.name)}</a></div>`:`<div>${esc(d.name)}</div>`).join(""):"No documents uploaded"):`${whyBox("s-"+r.id)}<button class="btn sm ghost" style="margin-top:4px" onclick="showSchoolDocs('${r.id}')">Show documents</button>`}</td>
       <td>${r.teachers} <span class="small muted">(${r.teachers_public} public)</span></td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
       <td>${pill(r.status)}${r.reviewed_at?`<div class="small muted" style="margin-top:4px">Reviewed ${new Date(r.reviewed_at).toLocaleDateString()}</div>`:""}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
       <td><input id="snote-${r.id}" aria-label="Note for ${esc(r.name)}" placeholder="Note (optional)" maxlength="1000">
-        <div class="acts">${r.status==="approved"?act(r.id,"suspended","Suspend",true):r.status==="suspended"?act(r.id,"approved","Restore"):act(r.id,"approved","Approve")+act(r.id,"suspended","Suspend",true)}</div></td>
+        <div class="acts">${(ok=>r.status==="approved"?act(r.id,"suspended","Suspend",true):r.status==="suspended"?ok("Restore"):ok("Approve")+act(r.id,"suspended","Suspend",true))(l=>A.boss?act(r.id,"approved",l):reqWaiting("school_approve",r.id)?`<span class="tag group">Waiting for the admin boss</span>`:`<button class="btn sm" onclick="sendRequest('school_approve','${r.id}','snote-${r.id}')">Ask the boss to ${l.toLowerCase()}</button>`)}</div></td>
     </tr>` }).join("")}</tbody></table></div>`
     :`<div class="empty">${rows.length?"No schools in this list.":"No school has registered yet."}</div>`}
   </div>`;
 }
-async function showSchoolDocs(id){ A.sdocs[id] = await listDocs(id); render() }
+async function showSchoolDocs(id){
+  if(!(await staffOpenDocs("school-docs", id, "s-"+id))) return;
+  A.sdocs[id] = await listDocs(id, "school-docs", 600); render();
+}
 async function setSchoolStatus(id,status){
   const note=$("#snote-"+id)?.value.trim()||null;
   const r = await sb.rpc("admin_set_school_status",{p_school_id:id,p_status:status,p_note:note});
@@ -1948,7 +2199,7 @@ const ROUTES = ["classes","learning","studio","help","teacher","account","admin"
 const PAGE_NAMES = {"/":"Home","/classes":"Find classes","/learning":"My lessons","/studio":"Teacher studio","/help":"Help","/teacher":"A teacher's profile","/account":"Sign in / my account","/admin":"Manage accounts","/partner":"Affiliate dashboard","/schools":"Schools","/school":"A school's page","/myschool":"School dashboard","/terms":"Terms of Use","/privacy":"Privacy Policy"};
 let lastTracked = null, memSid = null;
 function trackVisit(r){
-  if(!sb || !A.ready || A.admin) return;          // the admin's own visits are not counted
+  if(!sb || !A.ready || A.staffer) return;          // the admin's own visits are not counted
   const path = "/" + (ROUTES.includes(r) ? r : "");
   if(path===lastTracked) return;
   lastTracked = path;
@@ -2031,7 +2282,7 @@ render = function(){
     const id=session?.user?.id||null;
     if(id!==(A.user?.id||null) || event==="PASSWORD_RECOVERY") setTimeout(async()=>{
       await refresh();
-      if(id && (["","account","studio","partner","myschool"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.admin ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
+      if(id && (["","account","studio","partner","myschool"].includes(routeName()) || /access_token=/.test(location.hash))) location.hash = A.teacher ? "#/studio" : A.staffer ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
     },0);
   });
   refresh();
