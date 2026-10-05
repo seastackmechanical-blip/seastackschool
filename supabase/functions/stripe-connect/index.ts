@@ -1,5 +1,6 @@
-// SeastackSchool: connects a teacher to Stripe so they can be paid.
-// Actions (POST, signed in as a teacher): {action:"start", country:"CA"} -> {url} to Stripe's onboarding pages,
+// SeastackSchool: connects an independent teacher, or a school, to Stripe so they can be paid.
+// A teacher who belongs to a school does not connect: the school is paid for their lessons.
+// Actions (POST, signed in as that teacher or school): {action:"start", country:"CA"} -> {url} to Stripe's onboarding pages,
 // {action:"status"} -> refreshes and returns whether the teacher can take payments, {action:"dashboard"} -> {url} to
 // the teacher's own Stripe dashboard. Secrets: STRIPE_SECRET_KEY (required), SITE_URL (optional).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -46,13 +47,19 @@ Deno.serve(async (req: Request) => {
   const { data: who } = await asCaller.auth.getUser();
   if (!who?.user) return json({ ok: false, reason: "not_signed_in" }, 401);
   const db = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-  const { data: teacher } = await db.from("teachers").select("id, full_name").eq("id", who.user.id).maybeSingle();
-  if (!teacher) return json({ ok: false, reason: "not_a_teacher", message: "Only teacher accounts can be paid." }, 403);
+  const { data: teacher } = await db.from("teachers").select("id, full_name, school_id").eq("id", who.user.id).maybeSingle();
+  const { data: school } = await db.from("schools").select("id, name").eq("id", who.user.id).maybeSingle();
+  if (!teacher && !school) return json({ ok: false, reason: "not_allowed", message: "Only teacher and school accounts can be paid." }, 403);
+  if (teacher?.school_id) return json({ ok: false, reason: "school_teacher", message: "Your school is paid for your lessons, so you don't connect Stripe yourself." });
+  // where this account's payout record lives, and where Stripe sends them back to
+  const table = school ? "school_payouts" : "teacher_payouts", keyCol = school ? "school_id" : "teacher_id";
+  const ownerId = (school ?? teacher)!.id, home = school ? "#/myschool" : "#/studio";
+  const ownerName = (school ? school.name : teacher!.full_name) || (school ? "School on SeastackSchool" : "SeastackSchool teacher");
 
   let body: { action?: string; country?: string };
   try { body = await req.json(); } catch (_e) { return json({ ok: false, reason: "bad_request" }, 400); }
   const site = (Deno.env.get("SITE_URL") || "https://seastackschool.com/").replace(/\/?$/, "/");
-  const { data: row } = await db.from("teacher_payouts").select("*").eq("teacher_id", teacher.id).maybeSingle();
+  const { data: row } = await db.from(table).select("*").eq(keyCol, ownerId).maybeSingle();
 
   try {
     if (body.action === "start") {
@@ -63,11 +70,11 @@ Deno.serve(async (req: Request) => {
         // Accounts v2: a "recipient" who receives transfers from SeastackSchool and has Stripe's Express dashboard.
         const base = {
           contact_email: who.user.email ?? undefined,
-          display_name: (teacher.full_name || "SeastackSchool teacher").slice(0, 100),
-          identity: { country: country.toLowerCase(), entity_type: "individual" },
+          display_name: ownerName.slice(0, 100),
+          identity: { country: country.toLowerCase(), entity_type: school ? "company" : "individual" },
           configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
           dashboard: "express",
-          metadata: { teacher_id: teacher.id },
+          metadata: school ? { school_id: ownerId } : { teacher_id: ownerId },
         };
         let a;
         try {
@@ -78,12 +85,12 @@ Deno.serve(async (req: Request) => {
           a = await stripe2("accounts", base);
         }
         acct = a.id;
-        const ins = await db.from("teacher_payouts").insert({ teacher_id: teacher.id, stripe_account_id: acct });
+        const ins = await db.from(table).insert({ [keyCol]: ownerId, stripe_account_id: acct });
         if (ins.error) return json({ ok: false, reason: "save_failed", message: "Your payout account could not be saved." }, 500);
       }
       const link = await stripe2("account_links", {
         account: acct!,
-        use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"], refresh_url: site + "?stripe=again#/studio", return_url: site + "?stripe=back#/studio" } },
+        use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"], refresh_url: site + "?stripe=again" + home, return_url: site + "?stripe=back" + home } },
       });
       return json({ ok: true, url: link.url });
     }
@@ -98,7 +105,7 @@ Deno.serve(async (req: Request) => {
         details_submitted: canReceive || !(a?.requirements?.entries?.length),
         updated_at: new Date().toISOString(),
       };
-      await db.from("teacher_payouts").update(flags).eq("teacher_id", teacher.id);
+      await db.from(table).update(flags).eq(keyCol, ownerId);
       return json({ ok: true, connected: true, ...flags });
     }
     if (body.action === "dashboard") {

@@ -177,7 +177,8 @@ async function loadMe(){
   A.payout=null; A.pays=[]; A.payWait=null;
   if(A.teacher){ const pw = await sb.from("payout_waitlist").select("country").eq("teacher_id",A.user.id).maybeSingle(); A.payWait = pw.data ? pw.data.country : null }
   if(A.teacher){ const po = await sb.from("teacher_payouts").select("*").eq("teacher_id",A.user.id).maybeSingle(); A.payout = po.data || null }
-  if(A.teacher || A.learner){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
+  if(A.school){ const po = await sb.from("school_payouts").select("*").eq("school_id",A.user.id).maybeSingle(); A.payout = po.data || null }
+  if(A.teacher || A.learner || A.school){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,school_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
   syncLearner();
   if(A.admin) await loadAdmin();
 }
@@ -229,6 +230,29 @@ function chrome(){
 }
 
 /* ---------- a school runs its teachers' classes ---------- */
+// The school is paid for every lesson its teachers give. It connects Stripe once.
+function schoolPayBox(){
+  const p=A.payout, guess=(PAY_COUNTRIES.find(c=>c[1].toLowerCase()===(A.school.country||"").trim().toLowerCase())||[""])[0];
+  return `<div class="box" id="paybox"><h3>Getting paid</h3>
+    <p class="muted small">Families pay your school for every lesson your teachers give. Your school receives ${100-PAY.fee}% of each lesson price, paid to its bank account by Stripe. SeastackSchool keeps ${PAY.fee}%. Your school pays its own teachers. If a lesson is refunded, your share of it is taken back.${PAY.enabled?"":" Online payment is not open yet. You can connect now so that you are ready."}</p>
+    ${!p ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1;min-width:200px">Country your school is paid in<select id="pay-country"><option value="">Choose…</option>${PAY_COUNTRIES.map(c=>`<option value="${c[0]}" ${c[0]===guess?"selected":""}>${c[1]}</option>`).join("")}</select></label><button class="btn sm" id="paybtn" onclick="payConnect()">Connect Stripe</button></div>
+        <p class="small muted" style="margin:8px 0 0">Schools can be paid in Canada, the United States, the United Kingdom, Switzerland and most of Europe. The country cannot be changed later. Your teachers do not connect Stripe.</p>`
+      : p.charges_enabled ? `<div class="ok">Your school can take paid bookings.${p.payouts_enabled?"":" Stripe has not switched on payouts to your bank yet. Open your Stripe dashboard to see what it needs."}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" onclick="payDashboard()">Open the school's Stripe dashboard</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`
+      : `<div class="notice">Stripe still needs some details before your school can be paid.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" id="paybtn" onclick="payConnect()">Continue with Stripe</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`}
+  </div>`;
+}
+function schoolEarnings(){
+  const rows=A.pays.filter(p=>p.school_id===A.user.id && p.status!=="pending"); if(!rows.length) return "";
+  const share=p=>p.amount_cents-p.fee_cents, kept=rows.filter(p=>p.status==="paid"||p.status==="kept"), earned=kept.reduce((s,p)=>s+share(p),0);
+  const by={}; kept.forEach(p=>{ by[p.teacher_id]=(by[p.teacher_id]||0)+share(p) });
+  const tn=id=>(A.members.find(t=>t.id===id)||{}).full_name||"(teacher no longer in your school)";
+  return `<div class="box" id="searnings"><h3>Payments for your school's lessons</h3>
+    <p class="muted small">Your school's share so far: <b>${usd(earned)}</b> from ${kept.length} ${kept.length===1?"lesson":"lessons"}, after SeastackSchool's ${PAY.fee}%. Stripe pays it to the school's bank account; see the Stripe dashboard for payout dates.</p>
+    ${Object.keys(by).length>1?`<p class="small" style="margin:0 0 8px">By teacher: ${Object.keys(by).map(id=>esc(tn(id))+" "+usd(by[id])).join(" · ")}</p>`:""}
+    ${rows.slice(0,30).map(p=>{ const w=new Date(p.starts_at); return `<div class="lesson"><div><b>${esc(p.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(tn(p.teacher_id))} · for ${esc(p.attendee_name)}</div></div><span class="small">${PAY_LABEL[p.status]||p.status} · ${p.status==="paid"||p.status==="kept"?"school's share "+usd(share(p)):usd(p.amount_cents)}</span></div>` }).join("")}</div>`;
+}
 // What a teacher who belongs to a school sees under My classes.
 function schoolTeacherClasses(){
   return `<div class="notice" style="margin-top:0">Your school${A.mySchool?", "+esc(A.mySchool.name)+",":""} creates your classes and sets their prices and times. You add the lesson link or address below, and teach. To change a class, ask your school.</div>${myClassList()}`;
@@ -238,6 +262,7 @@ function schoolClassesBox(){
   const x = A.sEditing && A.sEditing!=="new" ? A.mclasses.find(c=>c.id===A.sEditing) : null, open = A.sEditing==="new" || !!x;
   const tOf=id=>A.members.find(t=>t.id===id)||{};
   return `<div class="box" id="sclasses"><h3>Classes</h3>
+    ${PAY.enabled && !(A.payout && A.payout.charges_enabled)?`<div class="notice" style="margin:0 0 10px">Online payment is on, so your classes can't be booked until your school connects Stripe. See Getting paid below.</div>`:""}
     <p class="muted small">Your school creates each class, sets its price and times, and chooses which of your teachers takes it. The teacher adds the lesson link or address, and teaches. ${s.status==="approved"?"":"Classes become public once your school is approved."}</p>
     ${A.mclasses.length?A.mclasses.map(c=>{ const t=tOf(c.teacher_id);
       return `<div class="lesson"><div style="flex:1;min-width:200px"><span class="tag ${c.type}">${c.type==="private"?"Private lesson":"Small group · up to "+c.capacity}</span> <b>${esc(c.title)}</b>
@@ -591,7 +616,7 @@ async function adminRefund(id){
       // a paid lesson is booked by the server, so the booking email is asked for here (it is only ever sent once)
       if(A.user) A.bookings.filter(b=>b.learner_id===A.user.id && b.status==="booked" && Date.now()-Date.parse(b.created_at)<15*6e4).forEach(b=>notifyBooking(b.id,"booked")) },ms)) }
     else if(paid==="0") toast("Payment cancelled. Nothing was charged.");
-    if(st) setTimeout(()=>{ if(A.teacher) payStatus(true) },2000);
+    if(st) setTimeout(()=>{ if(A.teacher || A.school) payStatus(true) },2000);
   },600);
 })();
 
@@ -1220,7 +1245,7 @@ function showRealBooking(){
   else if(!parent && c.ages[1]<13) block="This class is for children under 13, so it's booked from a parent account.";
   else if(parent && !A.children.length) block=`Add your child to your account first. <a href="#/account" onclick="$('#dlg').close()">Open my account</a>`;
   else if(parent && !kids.length) block=`This class is for ${ageLabel(c.ages).toLowerCase()}. None of the children on your account are that age.`;
-  if(!block && PAY.enabled && !PAY.payable.has(c.t)) block="This teacher isn't set up to take paid bookings yet. Please check back soon.";
+  if(!block && PAY.enabled && !PAY.payable.has(c.t)) block=(t.school?"This school":"This teacher")+" isn't set up to take paid bookings yet. Please check back soon.";
   if(kids.length && !kids.some(k=>k.id===RB.child)) RB.child=kids[0].id;
   const ss=sessions(c);
   body.innerHTML = `<div class="dlg-head"><div><span class="tag ${c.type}">${typeLabel(c)}</span><h3 style="margin-top:6px">${esc(c.title)}</h3>
@@ -1516,7 +1541,7 @@ function termsPage(){
     ["What SeastackSchool is",["SeastackSchool is a website where independent teachers and schools list lessons, online or in person, and students and parents book them. Teachers and schools are not employees of SeastackSchool. Each teacher or school is responsible for the lessons they give."]],
     ["Accounts",["You must give accurate information and keep your password to yourself. One person or one school per account.","Student accounts are for people aged 13 or over. Children under 13 do not have accounts: a parent or guardian books for them from a parent account and is responsible for those bookings."]],
     ["Teachers",["Teacher accounts are reviewed before the profile and classes are shown publicly. A profile must be truthful, including experience and qualifications.","Teachers must behave professionally, keep contact with children limited to the lesson and its arrangements, and follow the law where they and their students are. \"Identity checked by SeastackSchool\" means we have seen the identity documents the teacher uploaded. It is not a background check or a guarantee. A qualification is shown on a teacher's profile only after we have seen a photo or copy of the document for it. The document itself is never shown. Seeing a document is not a guarantee that it is genuine. Everything else on a profile, including education and experience, is the teacher's own statement. A teacher's level (New, Verified, Established, Senior) is worked out automatically from identity and qualification checks, lessons taught on SeastackSchool and ratings. It is not a guarantee of quality.","Teachers who are not part of a school are independent. They are not employees, agents or contractors of SeastackSchool. Each independent teacher is solely responsible for their own taxes: declaring their income, and charging, collecting and paying any sales tax, GST, HST or VAT that applies to their lessons. SeastackSchool does not withhold, collect, pay or file any tax for teachers, does not issue tax documents for them beyond what the law requires of it, and does not give tax advice."]],
-    ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons.","A school creates the classes its teachers take and sets their prices. The school, not SeastackSchool, is responsible for paying its teachers and for all taxes and employment obligations that arise from its lessons and its staff."]],
+    ["Schools",["A school uploads documents showing it is registered or licensed, and is reviewed before its page is public. \"Documents reviewed by SeastackSchool\" means we have seen those documents. It is not accreditation or certification by any government or authority.","A school is responsible for the teachers it approves and for their lessons.","A school creates the classes its teachers take and sets their prices. Where online payment is open, payment for a school's lessons goes to the school. The school, not SeastackSchool, is responsible for paying its teachers and for all taxes and employment obligations that arise from its lessons and its staff."]],
     ["Messages",["A teacher and a student or parent can message each other once a lesson has been booked between them. Messages are for arranging and discussing lessons. Do not use them to move lessons or payment away from SeastackSchool, or to ask a child for personal contact details.","SeastackSchool can read messages to keep families and teachers safe, and can suspend an account that misuses them."]],
     ["Booking, attendance and cancelling",["A booking reserves one place in one lesson. You can cancel before the lesson starts. Teachers, schools and SeastackSchool can also cancel a booking.","A lesson counts as attended unless the teacher marks otherwise. If you disagree with that mark you can ask SeastackSchool to review it, and our decision is final."]],
     ["Prices and payment", PAY.enabled ? ["Prices are set by teachers and shown in US dollars. You pay for a lesson when you book it, on a secure page run by Stripe. SeastackSchool never sees or stores your card number.",
@@ -1663,7 +1688,7 @@ function schoolDash(){
         ${A.members.length?A.members.map(t=>`<div class="lesson"><div><b>${esc(t.full_name||"(no name yet)")}</b> ${pill(t)}<div class="small muted">${(n=>n+" "+(n===1?"class":"classes"))(A.mclasses.filter(c=>c.teacher_id===t.id).length)}${t.city?" · "+esc(t.city):""}</div></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${t.status==="pending" && s.status==="approved"?`<button class="btn sm" onclick="memberAction('${t.id}','approve')">Approve</button>`:""}<button class="btn ghost sm" onclick="memberAction('${t.id}','remove')">${A.removingMember===t.id?"Confirm remove":"Remove"}</button></div></div>`).join("")
         :`<div class="empty">No teachers have joined yet.</div>`}</div>
-      ${schoolClassesBox()}
+      ${schoolClassesBox()}${schoolPayBox()}${schoolEarnings()}
       <div class="box"><h3>Upcoming bookings</h3>
         ${up.length?up.map(b=>{ const c=A.mclasses.find(x=>x.id===b.class_id), t=A.members.find(x=>x.id===c.teacher_id), w=new Date(b.starts_at); return `<div class="lesson"><div><b>${esc(c.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · ${esc(t?t.full_name:"")} · for ${esc(b.attendee_name)}</div></div></div>` }).join("")
         :`<p class="muted" style="margin:0">No upcoming bookings in your teachers' classes yet.</p>`}</div>
