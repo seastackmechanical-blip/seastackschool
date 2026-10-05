@@ -110,6 +110,8 @@ async function loadPublic(){
   const [t,c,n,sch,rv,cx] = await Promise.all([sb.from("teachers").select("*").eq("status","approved"), sb.from("classes").select("*"), sb.rpc("session_counts"), sb.from("schools").select("*").eq("status","approved").order("name"), sb.from("reviews").select("*").order("updated_at",{ascending:false}), sb.from("class_cancellations").select("class_id,starts_at").gt("starts_at", new Date().toISOString())]);
   if(t.error || c.error) return;
   A.schools = sch.data || []; A.reviews = rv.data || [];
+  const sj = await sb.from("subjects").select("name,sort,active").order("sort").order("name");
+  window.SUBJ_LIST = (sj.data||[]).filter(s=>s.active).map(s=>s.name);
   const ps = await sb.from("payment_settings").select("enabled,fee_percent,refund_hours,paused,pause_note").maybeSingle(), pt = await sb.rpc("payable_teachers");
   if(ps.data){ PAY.enabled=!!ps.data.enabled; PAY.fee=ps.data.fee_percent; PAY.hours=ps.data.refund_hours; PAY.paused=!!ps.data.paused; PAY.pauseNote=ps.data.pause_note||"" }
   PAY.payable = new Set((pt.data||[]).map(x=>typeof x==="string" ? x : x.payable_teachers));
@@ -127,7 +129,7 @@ async function loadPublic(){
   const ok = new Set();
   t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,checked:!!x.identity_checked_at,color:"#C9D6F2",
     years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience,headline:x.headline||"",country:x.country||"",edu:x.education||"",subj:x.subjects||[],quals:qualList(QV[x.id]),photo:x.photo?photoUrl(x.id,x.photo):"",teaches:x.teaches||[],lvl:(LV[x.id]||{}).level||0,lessons:(LV[x.id]||{}).lessons||0,nrate:(LV[x.id]||{}).ratings||0,avg:+(LV[x.id]||{}).avg_stars||0}) });
-  c.data.filter(x=>ok.has(x.teacher_id)).forEach(x=>CLASSES.push(toClass(x)));
+  c.data.filter(x=>ok.has(x.teacher_id) && (x.review_status||"approved")==="approved").forEach(x=>CLASSES.push(toClass(x)));
   if(t.data.length >= DEMO_OFF_AT && TEACHERS.some(x=>!x.real)){
     for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(!arr[i].real) arr.splice(i,1);
     S.bookings=[]; save();      // demo bookings pointed at demo classes that are now gone
@@ -209,6 +211,8 @@ async function loadAdmin(){
   const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
   const at = await sb.rpc("admin_attention"); if(!at.error) A.attn = at.data;
   const ib = await sb.rpc("admin_inbox"); if(!ib.error) A.inbox = ib.data;
+  const cl = await sb.rpc("admin_list_classes"); A.crows = cl.error ? [] : (cl.data || []);
+  const fc = await sb.rpc("staff_filter_config"); A.fcfg = fc.error ? {subjects:[],terms:[]} : fc.data;
   if(r.error || l.error || b.error || f.error) toast((r.error||l.error||b.error||f.error).message); else { A.rows = r.data; A.lrows = l.data; A.brows = b.data; A.arows = f.data }
 }
 async function refresh(){ await loadMe(); await loadPublic(); chrome(); A.ready=true; render() }
@@ -293,8 +297,8 @@ function schoolClassesBox(){
     ${PAY.enabled && !(A.payout && A.payout.charges_enabled)?`<div class="notice" style="margin:0 0 10px">Online payment is on, so your classes can't be booked until your school connects Stripe. See Getting paid below.</div>`:""}
     <p class="muted small">Your school creates each class, sets its price and times, and chooses which of your teachers takes it. The teacher adds the lesson link or address, and teaches. ${s.status==="approved"?"":"Classes become public once your school is approved."}</p>
     ${A.mclasses.length?A.mclasses.map(c=>{ const t=tOf(c.teacher_id);
-      return `<div class="lesson"><div style="flex:1;min-width:200px"><span class="tag ${c.type}">${c.type==="private"?"Private lesson":"Small group · up to "+c.capacity}</span> <b>${esc(c.title)}</b>
-        <div class="small muted">Teacher: ${esc(t.full_name||"(no name yet)")}${t.status==="pending"?" (not approved yet)":""} · ${esc(c.subject)} · ${c.level} · ages ${c.age_min}${c.age_max>=99?"+":"–"+c.age_max} · ${money(+c.price)} · ${c.days.map(d=>DAY3[d]).join(", ")} at ${c.start_time.slice(0,5)} (${esc((t.timezone||"UTC").replace(/_/g," "))} time) · ${c.duration_min} min · ${c.mode==="in_person"?"In person"+(c.place_city?" · "+esc(c.place_city):""):"Online"}</div></div>
+      return `<div class="lesson"><div style="flex:1;min-width:200px"><span class="tag ${c.type}">${c.type==="private"?"Private lesson":"Small group · up to "+c.capacity}</span> <b>${esc(c.title)}</b>${reviewTag(c)}
+        <div class="small muted">Teacher:${esc(t.full_name||"(no name yet)")}${t.status==="pending"?" (not approved yet)":""} · ${esc(c.subject)} · ${c.level} · ages ${c.age_min}${c.age_max>=99?"+":"–"+c.age_max} · ${money(+c.price)} · ${c.days.map(d=>DAY3[d]).join(", ")} at ${c.start_time.slice(0,5)} (${esc((t.timezone||"UTC").replace(/_/g," "))} time) · ${c.duration_min} min · ${c.mode==="in_person"?"In person"+(c.place_city?" · "+esc(c.place_city):""):"Online"}</div></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.sEditing='${c.id}';A.sRemoving=null;render();$('#sclassf')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeSchoolClass('${c.id}')">${A.sRemoving===c.id?"Confirm remove":"Remove"}</button></div></div>` }).join("")
       :`<div class="empty" style="margin-bottom:12px">No classes yet.</div>`}
     ${open ? schoolClassForm(x, team)
@@ -309,7 +313,7 @@ function schoolClassForm(x, team){
     ${locked?`<div class="notice" style="grid-column:1/-1;margin:0">This class has upcoming bookings, so its days, time, length, kind and place can't be changed. You can still change the teacher, title, subject, language, level, ages, price and class size.</div>`:""}
     <label class="field" style="grid-column:1/-1">Teacher<select name="teacher" id="sc2-teacher">${team.map(t=>`<option value="${t.id}" ${t.id===v.teacher_id?"selected":""}>${esc(t.full_name||"(no name yet)")} (${esc((t.timezone||"UTC").replace(/_/g," "))} time)${t.status==="pending"?" (not approved yet)":""}</option>`).join("")}</select></label>
     <label class="field" style="grid-column:1/-1">Class title<input name="title" id="sc2-title" maxlength="140" value="${esc(v.title)}"></label>
-    <label class="field">Subject<input name="subject" id="sc2-subject" maxlength="60" value="${esc(v.subject)}"></label>
+    <label class="field">Subject${subjectSelect("sc2-subject", v.subject)}</label>
     <label class="field">Teaching language<input name="lang" id="sc2-lang" maxlength="60" value="${esc(v.language)}"></label>
     <label class="field">Student level<select name="level" id="sc2-level">${["Beginner","Intermediate","Advanced"].map(l=>`<option ${l===v.level?"selected":""}>${l}</option>`).join("")}</select></label>
     <label class="field">Price per lesson (USD)<input name="price" id="sc2-price" type="number" min="1" value="${v.price===""?"":+v.price}"></label>
@@ -346,7 +350,7 @@ async function saveSchoolClass(f){
   }
   const r = x ? await sb.from("classes").update(row).eq("id",x.id).select("id").maybeSingle() : await sb.from("classes").insert(row).select("id").maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "The class could not be saved");
-  A.sEditing=null; await loadSchoolExtras(); await loadPublic(); toast(x?"Class updated":"Class created"); render();
+  A.sEditing=null; await loadSchoolExtras(); await loadPublic(); toast(savedWords((A.mclasses.find(c=>c.id===r.data.id)||{}).review_status, x?"Class updated":"Class created")); render();
 }
 async function removeSchoolClass(id){
   if(A.sRemoving!==id){ A.sRemoving=id; render(); return }
@@ -592,6 +596,12 @@ function auditWhat(x){
     case "payment.change": return to("status")==="refund_due" ? "Sent a refund" : "Changed a payment to "+to("status");
     case "settings.change": return [has("enabled")?"Switched online payment "+(to("enabled")?"on":"off"):"", has("paused")?(to("paused")?"Paused new bookings":"Opened bookings again"):"", has("fee_percent")?"Changed the fee from "+from("fee_percent")+"% to "+to("fee_percent")+"%":"", has("refund_hours")?"Changed the refund window from "+from("refund_hours")+" to "+to("refund_hours")+" hours":""].filter(Boolean).join("; ") || "Changed a setting";
     case "bookings.pause": return "Paused new bookings (emergency)";
+    case "class.approve": return "Approved a class";
+    case "class.hide": return "Hid a class";
+    case "subject.add": return "Added a subject to the list";
+    case "subject.retire": return "Retired a subject from the list";
+    case "term.add": return "Added a word to the automatic check";
+    case "term.remove": return "Removed a word from the automatic check";
     case "documents.open": return "Opened private documents";
     case "conversation.read": return "Read a private conversation";
     case "request.send": return "Asked the admin boss: "+(REQ_KIND[d.kind]||"a decision").toLowerCase();
@@ -621,6 +631,83 @@ function adminLog(){
     :`<div class="empty">${rows.length?"Nothing in this list.":"Nothing has been recorded yet."}</div>`}
   </div>`;
 }
+
+/* ---------- the system filter for classes: every new or edited class passes an automatic check. A class that
+   passes is public at once; one that trips a rule is held until staff look at it. Subjects come from one list. ---------- */
+const FLAG_WORDS = {contact:"Seems to contain contact details or a link", offsite_payment:"Mentions paying outside SeastackSchool", blocked_word:"Contains a word that is checked by hand",
+  high_price:"Unusually high price", child_in_person:"In person with children under 13", mixed_ages:"Young children and adults in one group"};
+function flagList(f){ return (f||[]).map(x=>FLAG_WORDS[x]||x) }
+// Shown to the teacher or school beside their own class.
+function reviewTag(x){
+  if(!x || !x.review_status || x.review_status==="approved") return "";
+  if(x.review_status==="pending") return `<div class="small" style="margin-top:4px"><span class="tag group">Being checked, not public yet</span> <span class="muted">${esc(flagList(x.review_flags).join("; ")||"Changed after it was hidden")}. SeastackSchool staff will look at it. If something here is a mistake, edit the class.</span></div>`;
+  return `<div class="small" style="margin-top:4px"><span class="tag bad">Hidden by SeastackSchool</span> <span class="muted">${esc(x.review_note||"")} Edit the class to fix it and staff will look again.</span></div>`;
+}
+function savedWords(status, ok){ return status==="pending" ? "Saved. This class is being checked by SeastackSchool before it goes public." : ok }
+// The subject is chosen from the official list. A class that still has a retired subject keeps it until changed.
+function subjectSelect(id, cur){
+  const list=(window.SUBJ_LIST||[]).slice(); if(cur && !list.includes(cur)) list.unshift(cur);
+  if(!list.length) return `<input name="subject" id="${id}" maxlength="60" value="${esc(cur||"")}">`;
+  return `<select name="subject" id="${id}"><option value="">Choose a subject</option>${list.map(s=>`<option ${s===cur?"selected":""}>${esc(s)}</option>`).join("")}</select>`;
+}
+
+// Staff: every class on the site, with filters. Approve a held class, or hide any class with a reason the teacher sees.
+function adminClasses(){
+  const rows=A.crows||[], f=A.cfilter||"pending", n=s=>rows.filter(r=>r.review_status===s).length;
+  const q=(A.cq||"").trim().toLowerCase(), subs=[...new Set(rows.map(r=>r.subject))].sort();
+  const list=rows.filter(r=>(f==="all"||r.review_status===f) && (!A.csub||r.subject===A.csub) && (!A.cmode||r.mode===A.cmode) && (!A.cflag||(r.review_flags||[]).includes(A.cflag))
+    && (!q || (r.title+" "+(r.teacher_name||"")+" "+(r.teacher_email||"")+" "+(r.school_name||"")).toLowerCase().includes(q)));
+  const chip=(k,l)=>`<button class="chip" aria-pressed="${f===k}" onclick="A.cfilter='${k}';render()">${l}</button>`;
+  const opt=(v,l,cur)=>`<option value="${esc(v)}" ${v===(cur||"")?"selected":""}>${esc(l)}</option>`;
+  const cfg=A.fcfg||{subjects:[],terms:[]};
+  return `<div class="wrap page">
+    ${adminHead()}
+    <p class="muted">Every class on SeastackSchool. The automatic check reads each new or edited class. A class that passes is public at once. A class that trips a rule waits here, hidden from families, until you approve it or hide it. You can also hide any public class; the teacher is told your reason and can fix it.</p>
+    <div class="chips" style="margin-bottom:10px">${chip("pending","Held for you ("+n("pending")+")")}${chip("approved","Public ("+n("approved")+")")}${chip("rejected","Hidden ("+n("rejected")+")")}${chip("all","All ("+rows.length+")")}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <input aria-label="Search classes" placeholder="Search title, teacher or school" value="${esc(A.cq||"")}" onchange="A.cq=this.value;render()" style="flex:1;min-width:200px">
+      <select aria-label="Subject" onchange="A.csub=this.value;render()">${opt("","Any subject",A.csub)}${subs.map(s=>opt(s,s,A.csub)).join("")}</select>
+      <select aria-label="Where" onchange="A.cmode=this.value;render()">${opt("","Online and in person",A.cmode)}${opt("online","Online",A.cmode)}${opt("in_person","In person",A.cmode)}</select>
+      <select aria-label="Reason held" onchange="A.cflag=this.value;render()">${opt("","Any reason",A.cflag)}${Object.keys(FLAG_WORDS).map(k=>opt(k,FLAG_WORDS[k],A.cflag)).join("")}</select>
+    </div>
+    ${list.length?`<div class="scroll"><table class="admin" style="min-width:900px"><thead><tr><th>Class</th><th>Teacher</th><th>Price</th><th>Status</th><th>Decision</th></tr></thead><tbody>
+    ${list.map(r=>`<tr>
+      <td><b>${esc(r.title)}</b><div class="small muted">${esc(r.subject)} · ${esc(r.level)} · ages ${r.age_min}${r.age_max>=99?"+":"–"+r.age_max} · ${r.type==="private"?"Private":"Group of up to "+r.capacity} · ${r.mode==="in_person"?"In person"+(r.place_city?", "+esc(r.place_city):""):"Online"} · taught in ${esc(r.language)}</div>
+        <div class="small muted">Listed ${new Date(r.created_at).toLocaleDateString()} · ${r.upcoming} upcoming ${r.upcoming===1?"booking":"bookings"}</div></td>
+      <td class="small"><b>${esc(r.teacher_name||"(no name yet)")}</b><div style="overflow-wrap:anywhere">${esc(r.teacher_email)}</div>${r.teacher_status==="approved"?"":`<div style="color:var(--rose)">Teacher is ${esc(r.teacher_status)}</div>`}${r.school_name?`<div class="muted">School: ${esc(r.school_name)}</div>`:""}</td>
+      <td>${money(+r.price)}</td>
+      <td><span class="tag ${r.review_status==="approved"?"ok":r.review_status==="rejected"?"bad":"group"}">${r.review_status==="approved"?"Public":r.review_status==="rejected"?"Hidden":"Held"}</span>
+        ${(r.review_flags||[]).length?`<div class="small" style="margin-top:4px">${flagList(r.review_flags).map(esc).join("<br>")}</div>`:""}
+        ${r.review_status==="approved"?`<div class="small muted" style="margin-top:4px">${r.by_system?"Passed the automatic check":"Approved by staff"}</div>`:""}${r.review_note?`<div class="small muted" style="margin-top:4px">Reason given: ${esc(r.review_note)}</div>`:""}</td>
+      <td><input id="cnote-${r.id}" aria-label="Reason for ${esc(r.title)}" placeholder="Reason, shown to the teacher (needed to hide)" maxlength="500">
+        <div class="acts">${r.review_status!=="approved"?`<button class="btn sm" onclick="reviewClass('${r.id}',true)">Approve</button>`:""}${r.review_status!=="rejected"?`<button class="btn sm ghost" onclick="reviewClass('${r.id}',false)">Hide</button>`:""}</div></td>
+    </tr>`).join("")}</tbody></table></div>${rows.length>=1000?`<p class="small muted">Showing the 1000 most recent classes.</p>`:""}`
+    :`<div class="empty">${rows.length?(f==="pending"?"No class is waiting for you.":"No classes match."):"No classes have been listed yet."}</div>`}
+    <details style="margin-top:22px"><summary>What the automatic check holds, and the lists it uses</summary>
+      <p class="small muted" style="margin:10px 0">A class is held when its title, subject, language or place shows any of these: ${Object.values(FLAG_WORDS).map(x=>x.toLowerCase()).join("; ")}. The price rule is above $300 per lesson. Changing a class's days or time does not send it back for checking; changing its title, subject, language, price, ages, kind or place does.</p>
+      <h3 style="margin:14px 0 6px">Subjects teachers can choose</h3>
+      <p class="small muted" style="margin:0 0 8px">Every class picks one of these, so the subject filter stays tidy. Retiring a subject removes it from the list for new classes; classes that already use it keep it.</p>
+      <div class="chips">${cfg.subjects.map((s,i)=>`<span class="chip" style="${s.active?"":"opacity:.55"}">${esc(s.name)} <span class="muted">(${s.classes})</span> <button class="btn sm ghost" style="padding:1px 7px;margin-left:4px" onclick="setSubject(${i},${!s.active})">${s.active?"Retire":"Restore"}</button></span>`).join("")}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><input id="sub-new" aria-label="New subject" placeholder="New subject" maxlength="60" style="flex:1;min-width:180px;max-width:320px"><button class="btn sm" onclick="addSubject()">Add subject</button></div>
+      <h3 style="margin:18px 0 6px">Words and phrases checked by hand</h3>
+      <p class="small muted" style="margin:0 0 8px">A class whose title contains one of these is held for you. It is not refused: a word like these can be innocent, so a person decides.</p>
+      <div class="chips">${cfg.terms.map((t,i)=>`<span class="chip">${esc(t)} <button class="btn sm ghost" style="padding:1px 7px;margin-left:4px" aria-label="Remove ${esc(t)}" onclick="setTerm(${i})">Remove</button></span>`).join("")}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><input id="term-new" aria-label="New word or phrase" placeholder="New word or phrase" maxlength="60" style="flex:1;min-width:180px;max-width:320px"><button class="btn sm" onclick="addTerm()">Add</button></div>
+    </details>
+  </div>`;
+}
+async function reviewClass(id, ok){
+  const el=$("#cnote-"+id), note=el?el.value.trim():"";
+  if(!ok && note.length<5) return toast("Write the reason first. The teacher is shown it.");
+  const r = await sb.rpc("staff_review_class",{p_id:id,p_approve:ok,p_note:note||null});
+  if(r.error) return toast(r.error.message);
+  await loadAdmin(); await loadPublic(); toast(ok?"Class approved. It is public now.":"Class hidden. The teacher has been told why."); render();
+}
+async function filterDone(r, msg){ if(r.error) return toast(r.error.message); await loadAdmin(); await loadPublic(); toast(msg); render() }
+async function addSubject(){ const v=$("#sub-new").value.trim(); if(v.length<2) return toast("Type the subject name"); await filterDone(await sb.rpc("staff_set_subject",{p_name:v,p_active:true}), "Subject added") }
+async function setSubject(i, on){ const s=((A.fcfg||{}).subjects||[])[i]; if(!s) return; await filterDone(await sb.rpc("staff_set_subject",{p_name:s.name,p_active:on}), on?"Subject restored":"Subject retired") }
+async function addTerm(){ const v=$("#term-new").value.trim(); if(v.length<2) return toast("Type the word or phrase"); await filterDone(await sb.rpc("staff_set_blocked_term",{p_term:v,p_on:true}), "Added. New and edited classes are checked against it.") }
+async function setTerm(i){ const t=((A.fcfg||{}).terms||[])[i]; if(!t) return; await filterDone(await sb.rpc("staff_set_blocked_term",{p_term:t,p_on:false}), "Removed") }
 
 // Staff: only the admin boss adds or removes people. There is always at least one admin boss.
 function adminStaff(){
@@ -1051,7 +1138,7 @@ async function saveProfile(f){
 function myClassList(){
   if(!A.classes.length) return `<div class="empty" style="margin-bottom:16px">You haven't listed a class yet.</div>`;
   return `${classEditForm()}<div style="margin-bottom:16px">${A.classes.map(x=>{ const c=toClass(x); return `<div class="lesson">
-    <div><span class="tag ${c.type}">${typeLabel(c)}</span> <b>${esc(c.title)}</b>
+    <div><span class="tag ${c.type}">${typeLabel(c)}</span> <b>${esc(c.title)}</b>${reviewTag(x)}
       <div class="small muted">${modeLabel(c)} · ${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (${esc((A.teacher.timezone||"UTC").replace(/_/g," "))} time) · ${c.mins} min</div>
       <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc((c.mode==="in_person"?A.addresses[x.id]:A.links[x.id])||"")}" placeholder="${c.mode==="in_person"?"Address (only people who booked can see it)":"Lesson link (Zoom, Meet…): https://"}" aria-label="${c.mode==="in_person"?"Address":"Lesson link"} for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">${c.mode==="in_person"?"Save address":"Save link"}</button></div>
       ${A.teacher.status==="approved"?`<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">This class's own page to share: <a href="${SITE_BASE}classes/${slugify(x.title,x.id)}/">${esc(SITE_BASE)}classes/${slugify(x.title,x.id)}/</a></div>`:""}</div>
@@ -1075,7 +1162,7 @@ addListing = async function(f){
     const k = await sb.from("class_links").insert({class_id:r.data.id,url:link||null,address:mode==="in_person"?address:null});
     if(k.error) toast("Class saved, but the lesson link or address could not be saved");
   }
-  await loadMe(); await loadPublic(); toast("Class saved"); render();
+  await loadMe(); await loadPublic(); toast(savedWords((A.classes.find(c=>c.id===r.data.id)||{}).review_status, "Class saved")); render();
 };
 // Editing a class. While it has upcoming bookings its days, time, length, kind and place are fixed
 // (the database enforces the same rule), so families never find their lesson moved under them.
@@ -1087,7 +1174,7 @@ function classEditForm(){
     <h3 style="grid-column:1/-1;margin:0">Edit class</h3>
     ${locked?`<div class="notice" style="grid-column:1/-1;margin:0">This class has upcoming bookings, so its days, time, length, kind and place can't be changed. You can still change the title, subject, language, level, ages, price and class size. To change the schedule, cancel the bookings first or create a new class.</div>`:""}
     <label class="field" style="grid-column:1/-1">Class title<input name="title" id="ed-title" maxlength="140" value="${esc(x.title)}"></label>
-    <label class="field">Subject<input name="subject" id="ed-subject" maxlength="60" value="${esc(x.subject)}"></label>
+    <label class="field">Subject${subjectSelect("ed-subject", x.subject)}</label>
     <label class="field">Teaching language<input name="lang" id="ed-lang" maxlength="60" value="${esc(x.language)}"></label>
     <label class="field">Student level<select name="level" id="ed-level">${["Beginner","Intermediate","Advanced"].map(l=>`<option ${l===x.level?"selected":""}>${l}</option>`).join("")}</select></label>
     <label class="field">Price per lesson (USD)<input name="price" id="ed-price" type="number" min="1" value="${+x.price}"></label>
@@ -1123,7 +1210,7 @@ async function saveClass(f){
   }
   const r = await sb.from("classes").update(row).eq("id",x.id).select("id").maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "The class could not be saved");
-  A.editing=null; await loadMe(); await loadPublic(); toast("Class updated"); render();
+  A.editing=null; await loadMe(); await loadPublic(); toast(savedWords((A.classes.find(c=>c.id===r.data.id)||{}).review_status, "Class updated")); render();
 }
 async function removeClass(id){
   if(A.removing!==id){ A.removing=id; render(); return }
@@ -1220,6 +1307,7 @@ function adminPage(){
   if(!A.admin) return `<div class="wrap page"><h2>Manage accounts</h2><div class="notice">This page is for SeastackSchool admins. ${A.user?"You're signed in as "+esc(A.user.email)+".":`<a href="#/account">Sign in</a>`}</div></div>`;
   if(A.twoStep) return twoStepPage();
   if(["pay","staff"].includes(A.adminTab) && !A.boss) A.adminTab="teachers";
+  if(A.adminTab==="classes") return adminClasses();
   if(A.adminTab==="requests") return adminRequests();
   if(A.adminTab==="log") return adminLog();
   if(A.adminTab==="staff") return adminStaff();
@@ -1278,7 +1366,7 @@ function adminHead(){
     ${PAY.paused?`<div class="notice" style="margin:12px 0"><b>New bookings are paused.</b> Nobody can book until the admin boss starts them again${A.boss?` under Payments and settings`:""}. Lessons already booked go ahead.</div>`:""}
     ${attentionPanel()}
     ${convBox()}
-    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("requests",(A.boss?"Requests from admins":"My requests to the boss")+" ("+(A.reqs||[]).filter(q=>q.status==="pending").length+")")}${A.boss?tab("pay","Payments and settings"):""}${A.boss?tab("staff","Staff ("+(A.staffRows||[]).length+")"):""}${tab("log","Activity log")}${tab("visits","Visits")}</div>
+    <div class="tabs" role="tablist">${tab("teachers","Teachers ("+(A.rows||[]).length+")")}${tab("learners","Students and parents ("+(A.lrows||[]).length+")")}${tab("bookings","Bookings ("+(A.brows||[]).filter(b=>b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length+" upcoming)")}${tab("classes","Classes ("+(A.crows||[]).length+")")}${tab("schools","Schools ("+(A.srows||[]).length+")")}${tab("affiliates","Affiliates ("+(A.arows||[]).length+")")}${tab("reviews","Reviews ("+(A.rrows||[]).length+")")}${tab("inbox","Reports and messages ("+(A.attn?A.attn.reports+A.attn.messages:0)+")")}${tab("requests",(A.boss?"Requests from admins":"My requests to the boss")+" ("+(A.reqs||[]).filter(q=>q.status==="pending").length+")")}${A.boss?tab("pay","Payments and settings"):""}${A.boss?tab("staff","Staff ("+(A.staffRows||[]).length+")"):""}${tab("log","Activity log")}${tab("visits","Visits")}</div>
     ${PAY.paused?"":`<details style="margin:0 0 14px"><summary class="small">Emergency: pause all new bookings</summary><p class="small muted" style="margin:8px 0">Use this for a payment fault or a safety incident. Nobody can book until the admin boss starts bookings again. Lessons already booked go ahead. The admin boss is told at once.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="pause-why" aria-label="Why booking should be paused" placeholder="Why? (required)" maxlength="300" style="flex:1;min-width:200px"><button class="btn sm ghost" onclick="pauseNow()">Pause new bookings</button></div></details>`}`;
 }
 function adminLearners(){
@@ -1761,6 +1849,7 @@ function attentionPanel(){
   const items=[
     [A.boss?(A.reqs||[]).filter(q=>q.status==="pending" && !q.mine).length:0,"request","requests","from an admin for your decision",go("requests")],
     [a.teachers,"teacher","teachers","waiting for approval",go("teachers","A.filter='pending';")],
+    [a.classes,"class","classes","held by the automatic check",go("classes","A.cfilter='pending';")],
     [a.qualifications,"qualification","qualifications","waiting for you to verify the document",go("teachers","A.filter='all';")],
     [a.schools,"school","schools","waiting for review",go("schools","A.sfilter='pending';")],
     [a.affiliates,"affiliate","affiliates","waiting for approval",go("affiliates","A.afilter='pending';")],

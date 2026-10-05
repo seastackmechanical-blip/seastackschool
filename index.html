@@ -528,7 +528,7 @@ function home(){
 function optionList(vals, cur, any){ return `<option value="">${any}</option>` + vals.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("") }
 let FOPEN=false;   // on phones the filters are folded away until asked for
 function browse(){
-  const nf=Object.keys(S.filters).filter(k=>k!=="q" && S.filters[k]).length;
+  const nf=Object.keys(S.filters).filter(k=>k!=="q" && k!=="sort" && S.filters[k]).length;
   const F=S.filters, subjects=[...new Set(allClasses().map(c=>c.subject))].sort(), langs=[...new Set(allClasses().map(c=>c.lang))].sort();
   const chip=(k,v,l)=>`<button class="chip" aria-pressed="${F[k]===v}" onclick="S.filters.${k}=S.filters.${k}==='${v}'?'':'${v}';render()">${l}</button>`;
   return `<div class="wrap browse">
@@ -545,11 +545,34 @@ function browse(){
         <div class="field">Class type<div class="chips">${chip("type","private","Private lesson")}${chip("type","group","Small group")}</div></div>
         <div class="field">Where<div class="chips">${chip("mode","online","Online")}${chip("mode","in_person","In person")}</div></div>
         <div class="field">When (your time)<div class="chips">${chip("when","morning","Mornings")}${chip("when","afternoon","Afternoons")}${chip("when","evening","Evenings")}${chip("when","weekend","Weekends")}</div></div>
-        <button class="btn ghost sm" style="align-self:flex-start" onclick="S.filters={q:'',subject:'',lang:'',age:'',level:'',type:'',when:'',price:'',mode:''};render()">Clear filters</button>
+        ${teacherFilters(F, chip)}
+        <button class="btn ghost sm" style="align-self:flex-start" onclick="S.filters={q:'',subject:'',lang:'',age:'',level:'',type:'',when:'',price:'',mode:'',country:'',school:'',stars:'',rank:'',checked:'',qual:'',sort:''};render()">Clear filters</button>
       </div>
     </aside>
     <section id="results"></section>
   </div>`;
+}
+// Filters about the teacher: where they are, how well checked and rated they are, and whether they belong to a school.
+// Each one appears only when it can narrow the list (for example, the school filter needs at least one school).
+function teacherFilters(F, chip){
+  const ts=[...new Set(allClasses().map(c=>c.t))].map(teacher).filter(Boolean);
+  const countries=[...new Set(ts.map(t=>t.country).filter(Boolean))].sort();
+  const schools=(typeof A!=="undefined" && A.schools || []).filter(s=>ts.some(t=>t.school===s.id));
+  const ranks=typeof RANKS!=="undefined" ? RANKS : [];
+  const sel=(k,opts,any)=>`<select onchange="S.filters.${k}=this.value;renderResults()"><option value="">${any}</option>${opts.map(([v,l])=>`<option value="${esc(v)}" ${String(F[k]||"")===String(v)?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  return `${countries.length>1?`<label class="field">Teacher's country${sel("country",countries.map(c=>[c,c]),"Any country")}</label>`:""}
+        <label class="field">Teacher's rating${sel("stars",[["4","4 stars and above"],["4.5","4.5 stars and above"]],"Any rating")}</label>
+        ${ranks.length?`<label class="field">Teacher level${sel("rank",ranks.slice(1).map((r,i)=>[String(i+1),r+(i<ranks.length-2?" and above":"")]),"Any level")}</label>`:""}
+        ${schools.length?`<label class="field">School${sel("school",[["none","Independent teachers only"]].concat(schools.map(s=>[s.id,s.name])),"Any")}</label>`:""}
+        <div class="field">Checked by SeastackSchool<div class="chips">${chip("checked","1","Identity checked")}${chip("qual","1","Verified qualification")}</div></div>`;
+}
+const SORTS = [["","Recommended"],["soon","Soonest lesson"],["low","Price: low to high"],["high","Price: high to low"],["stars","Highest rated"]];
+function sortClasses(list){
+  const k=S.filters.sort; if(!k) return list;
+  const next=c=>{ const s=sessions(c).find(x=>x.left>0); return s ? +s.start : Infinity };
+  const stars=c=>reviewsFor(c.t).length ? rating(c.t) : 0;
+  const by={soon:(a,b)=>next(a)-next(b), low:(a,b)=>a.price-b.price, high:(a,b)=>b.price-a.price, stars:(a,b)=>stars(b)-stars(a)}[k];
+  return by ? list.slice().sort(by) : list;
 }
 function matches(c){
   const F=S.filters, t=teacher(c.t), q=F.q.trim().toLowerCase();
@@ -561,6 +584,12 @@ function matches(c){
   if(F.mode && (c.mode||"online")!==F.mode) return false;
   if(F.age){ const a=+F.age; if(a<c.ages[0]||a>c.ages[1]) return false }
   if(F.price && c.price>+F.price) return false;
+  if(F.country && (t.country||"")!==F.country) return false;
+  if(F.school && (F.school==="none" ? !!t.school : t.school!==F.school)) return false;
+  if(F.checked && !t.checked) return false;
+  if(F.qual && !(t.quals||[]).length) return false;
+  if(F.rank && (t.lvl||0)<+F.rank) return false;
+  if(F.stars && !(reviewsFor(c.t).length && rating(c.t)>=+F.stars)) return false;
   if(F.when){
     const ss=sessions(c).filter(s=>{const {h,d}=zoned(s.start);
       return F.when==="morning"?h>=5&&h<12:F.when==="afternoon"?h>=12&&h<17:F.when==="evening"?h>=17&&h<23:(d===0||d===6)});
@@ -570,8 +599,8 @@ function matches(c){
 }
 function renderResults(){
   const el=$("#results"); if(!el) return;
-  const list=allClasses().filter(matches);
-  el.innerHTML = `<div class="results-head"><h2 style="margin:0">${list.length} ${list.length===1?"class":"classes"}</h2><span class="small muted">Times in ${esc(TZ)}</span></div>
+  const list=sortClasses(allClasses().filter(matches));
+  el.innerHTML = `<div class="results-head"><h2 style="margin:0">${list.length} ${list.length===1?"class":"classes"}</h2><span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center">Sort by <select aria-label="Sort classes" onchange="S.filters.sort=this.value;renderResults()">${SORTS.map(([v,l])=>`<option value="${v}" ${(S.filters.sort||"")===v?"selected":""}>${l}</option>`).join("")}</select></label>Times in ${esc(TZ)}</span></div>
   <p class="notice" style="margin-top:0">Teachers and classes marked Demo are samples that show how SeastackSchool works. Classes without the tag can be booked with a free student or parent account.<span class="paynote"> Online payment is not open yet.</span></p>
   ${list.length? `<div class="list">${list.map(card).join("")}</div>` :
    `<div class="empty"><h3>No classes match these filters</h3><p class="muted">Try removing the age or time filter, or search a broader subject.</p></div>`}`;
@@ -737,7 +766,7 @@ function listings(){
       <label class="choice"><input type="radio" name="mode" value="in_person" id="nc-inperson" onchange="classModeFields(this.value)"><span><b>In person</b>Students come to a place. The city is public; the address is only for people who booked.</span></label>
     </div></fieldset>
     <label class="field" style="grid-column:1/-1">Class title<input name="title" id="nc-title" required placeholder="e.g. Conversational French for beginners"></label>
-    <label class="field">Subject<input name="subject" id="nc-subject" required></label>
+    <label class="field">Subject${typeof subjectSelect==="function"?subjectSelect("nc-subject",""):`<input name="subject" id="nc-subject" required>`}</label>
     <label class="field">Teaching language<input name="lang" id="nc-lang" value="English" required></label>
     <label class="field">Student level<select name="level" id="nc-level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label>
     <label class="field">Price per lesson (USD)<input name="price" id="nc-price" type="number" min="1" value="20" required></label>
@@ -807,7 +836,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=36"></script>
+<script src="accounts.js?v=37"></script>
 
 </body>
 </html>
