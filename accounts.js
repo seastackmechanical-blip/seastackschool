@@ -620,12 +620,14 @@ function statusBanner(){
 }
 function profileForm(){
   const t=A.teacher, tz = t.timezone==="UTC" && !t.full_name.trim() ? BROWSER_TZ : t.timezone, zones=tzList();
+  const tzLocked=A.classes.some(c=>classHasUpcoming(c.id));
   return `<form class="box row" id="proff" onsubmit="event.preventDefault();saveProfile(this)">
     <label class="field">Full name<input name="full_name" id="pf-name" required maxlength="120" value="${esc(t.full_name)}"></label>
     <label class="field" style="grid-column:1/-1">Headline: one line that says what you teach<input name="headline" id="pf-headline" maxlength="140" value="${esc(t.headline||"")}" placeholder="e.g. Certified maths teacher for ages 10 to 16"></label>
     <label class="field">City<input name="city" id="pf-city" maxlength="120" value="${esc(t.city)}" placeholder="e.g. Vancouver"></label>
     <label class="field">Country<input name="country" id="pf-country" maxlength="80" value="${esc(t.country||"")}" placeholder="e.g. Canada"></label>
-    <label class="field">Your time zone<select name="timezone" id="pf-tz">${(zones.includes(tz)?zones:[tz].concat(zones)).map(z=>`<option ${z===tz?"selected":""}>${esc(z)}</option>`).join("")}</select></label>
+    <label class="field">Your time zone${tzLocked?" (locked while you have upcoming bookings)":""}<select name="timezone" id="pf-tz" ${tzLocked?"disabled":""}>${(zones.includes(tz)?zones:[tz].concat(zones)).map(z=>`<option ${z===tz?"selected":""}>${esc(z)}</option>`).join("")}</select></label>
+    ${tzLocked?`<p class="small muted" style="grid-column:1/-1;margin:0">Your class times are set in your time zone, so changing it would move lessons that are already booked. You can change it once those lessons have taken place, or after cancelling them.</p>`:t.timezone==="UTC"?`<p class="small" style="grid-column:1/-1;margin:0;color:var(--rose)">Your time zone is set to UTC. If you don't live on UTC time, choose your own zone before you create classes, so your class times mean what you expect.</p>`:""}
     <label class="field">Years of teaching experience<input name="years" id="pf-years" type="number" min="0" max="80" value="${t.years_experience}"></label>
     <label class="field" style="grid-column:1/-1">Teaching languages, separated by commas<input name="languages" id="pf-langs" value="${esc((t.languages||[]).join(", "))}" placeholder="English, French"></label>
     <label class="field" style="grid-column:1/-1">Introduction (students read this first)<textarea name="intro" id="pf-intro" rows="3" maxlength="2000">${esc(t.intro)}</textarea></label>
