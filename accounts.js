@@ -11,7 +11,7 @@ const A = {user:null, teacher:null, admin:false, classes:[], rows:null, mode:"si
   schools:[], school:null, schoolPriv:null, members:[], mclasses:[], docs:[], mySchool:null,
   srows:null, sfilter:"pending", sdocs:{}, removingDoc:null, removingMember:null, leaving:false,
   reviews:[], rrows:null, mreviews:[],
-  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
+  tdocs:[], tdocsAdmin:{}, removingTDoc:null, attn:null, inbox:null, editing:null, cancelDateKey:null, notes:{}, quals:[], aquals:[], removingQual:null, alerts:[], alertEmail:true, payout:null, pays:[], apays:[], payConfirm:false, refunding:null, contacts:[], thread:null, threadWith:null, amsgs:null};
 const CANCELLED = {};
 // Online payment (Stripe). Off until the admin switches it on; the numbers come from the database.
 const PAY = {enabled:false, fee:20, hours:24, payable:new Set()};
@@ -144,7 +144,7 @@ function payChrome(){
 async function loadMe(){
   const {data:{session}} = await sb.auth.getSession();
   A.user = session?.user || null; A.teacher=null; A.admin=false; A.classes=[]; A.rows=null; A.learner=null; A.children=[]; A.lrows=null; A.bookings=[]; A.links={}; A.addresses={}; A.brows=null; A.aff=null; A.adash=null; A.arows=null;
-  A.contacts=[]; A.quals=[];
+  A.contacts=[]; A.quals=[]; A.alerts=[]; A.alertEmail=true;
   A.school=null; A.schoolPriv=null; A.members=[]; A.mclasses=[]; A.docs=[]; A.mySchool=null; A.srows=null; A.sdocs={};
   if(!A.user) return;
   const [t,adm,c,l,k,b,ln,af,sc,sp] = await Promise.all([
@@ -172,6 +172,8 @@ async function loadMe(){
   A.notes = {};
   if(A.teacher){ const nt = await sb.rpc("my_class_attendees"); (nt.data||[]).forEach(x=>{ A.notes[x.booking_id]=x }) }
   if(A.teacher || A.learner){ const mc = await sb.rpc("my_message_contacts"); A.contacts = mc.data || [] }
+  await loadAlerts();
+  const np = await sb.from("notification_prefs").select("email").eq("user_id",A.user.id).maybeSingle(); A.alertEmail = !np.data || np.data.email !== false;
   A.payout=null; A.pays=[];
   if(A.teacher){ const po = await sb.from("teacher_payouts").select("*").eq("teacher_id",A.user.id).maybeSingle(); A.payout = po.data || null }
   if(A.teacher || A.learner){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
@@ -214,11 +216,48 @@ function chrome(){
   let n = $("#navadmin");
   if(A.admin && !n){ n=document.createElement("a"); n.id="navadmin"; n.href="#/admin"; n.dataset.r="admin"; n.textContent="Manage accounts"; $("nav.main").appendChild(n) }
   if(!A.admin && n) n.remove();
+  let al = $("#navalerts");
+  if(A.user && !al){ al=document.createElement("a"); al.id="navalerts"; al.href="#/alerts"; al.dataset.r="alerts"; const nav=$("nav.main"); nav.insertBefore(al, nav.querySelector('[data-r="help"]')) }
+  if(!A.user && al) al.remove();
+  if(A.user && al){ const u=A.alerts.filter(x=>!x.read_at).length; al.textContent = u ? `Alerts (${u})` : "Alerts" }
   let m = $("#navmsgs"); const can = !!(A.teacher || A.learner);
   if(can && !m){ m=document.createElement("a"); m.id="navmsgs"; m.href="#/messages"; m.dataset.r="messages"; const nav=$("nav.main"); nav.insertBefore(m, nav.querySelector('[data-r="help"]')) }
   if(!can && m) m.remove();
   if(can && m){ const u=A.contacts.reduce((a,c)=>a+(c.unread||0),0); m.textContent = u ? `Messages (${u})` : "Messages" }
 }
+
+/* ---------- alerts: what happened on your account. The same alerts are emailed unless email is switched off ---------- */
+async function loadAlerts(){
+  if(!A.user) return;
+  const r = await sb.from("notifications").select("id,kind,title,body,link,created_at,read_at").order("created_at",{ascending:false}).limit(60);
+  if(!r.error) A.alerts = r.data || [];
+}
+function alertsPage(){
+  if(!A.user) return `<div class="wrap page"><h2>Alerts</h2><div class="notice"><a href="#/account">Sign in</a> to see your alerts.</div></div>`;
+  const fresh=A.alerts.filter(x=>!x.read_at).length;
+  if(fresh) setTimeout(async()=>{ if(routeName()!=="alerts") return; await sb.rpc("mark_notifications_read"); const now=new Date().toISOString(); A.alerts.forEach(x=>{ if(!x.read_at){ x.read_at=now; x.wasNew=true } }); chrome() },800);
+  return `<div class="wrap page" style="max-width:760px"><h2>Alerts</h2>
+    <p class="muted">Bookings, cancellations, messages, reminders and decisions about your account. ${A.alertEmail?"These are also emailed to you.":"Email alerts are switched off for your account."} You can change that under Password and account.</p>
+    ${A.alerts.length?A.alerts.map(x=>{ const w=new Date(x.created_at), isNew=!x.read_at||x.wasNew;
+      return `<a class="lesson" href="${esc(x.link||"#/alerts")}" style="text-decoration:none;color:inherit"><div style="flex:1;min-width:0"><b>${esc(x.title)}</b>${isNew?` <span class="tag ok">New</span>`:""}${x.body?`<div class="small muted" style="margin-top:2px;overflow-wrap:anywhere">${esc(x.body)}</div>`:""}</div><span class="small muted" style="white-space:nowrap">${fmtDay(w)}, ${fmtTime(w)}</span></a>` }).join("")
+      :`<div class="empty">No alerts yet. When something happens on your account, it shows here.</div>`}
+  </div>`;
+}
+async function setAlertEmail(on){
+  const r = await sb.from("notification_prefs").upsert({user_id:A.user.id,email:on},{onConflict:"user_id"});
+  if(r.error){ toast(r.error.message); render(); return }
+  A.alertEmail=on; toast(on?"Email alerts are on":"Email alerts are off. Alerts still show on the site."); render();
+}
+// Keep the alert and message counts fresh while the page is open and in view.
+setInterval(async()=>{
+  if(!A.user || document.visibilityState!=="visible") return;
+  const before=A.alerts.filter(x=>!x.read_at).length+A.contacts.reduce((s,c)=>s+(c.unread||0),0);
+  await loadAlerts();
+  if(A.teacher || A.learner){ const mc = await sb.rpc("my_message_contacts"); if(!mc.error) A.contacts = mc.data || [] }
+  const after=A.alerts.filter(x=>!x.read_at).length+A.contacts.reduce((s,c)=>s+(c.unread||0),0);
+  chrome();
+  if(after>before){ toast("You have a new alert"); if(["alerts","messages"].includes(routeName()) && !$("#msg-body")?.value) render() }
+},90000);
 
 /* ---------- messages between a teacher and a family that booked one of their classes ---------- */
 function messagesPage(other){
@@ -1055,9 +1094,7 @@ async function cancelReal(id){
   await loadMe(); await loadPublic(); toast("Booking cancelled"); render();
 }
 // Emails the teacher and the learner. The booking itself never depends on this succeeding.
-function notifyBooking(id,event){
-  try{ sb.functions.invoke("booking-notify",{body:{booking_id:id,event,tz:TZ}}).catch(()=>{}) }catch(e){}
-}
+function notifyBooking(){ /* alerts and their emails are created by the database when a booking changes */ }
 
 /* ---------- booking: real classes can't be booked yet ---------- */
 const baseOpenBooking = openBooking;
@@ -1140,6 +1177,7 @@ function accountSettings(){
     : A.aff ? "your affiliate link and its history"
     : A.learner && A.learner.role==="parent" ? "your children's details, your bookings and your ratings" : "your bookings and your ratings";
   return `<details style="margin-top:16px"><summary>Password and account</summary>
+    <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="alert-email" ${A.alertEmail?"checked":""} onchange="setAlertEmail(this.checked)" style="margin-top:4px"><span><b>Email me alerts</b><span class="small muted" style="display:block">Bookings, cancellations, messages, lesson reminders and decisions about your account. Alerts always show on the site under Alerts.</span></span></label>
     <form id="pwf" novalidate onsubmit="event.preventDefault();changePassword(this)" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
       <label class="field" style="flex:1;min-width:220px">New password (at least 8 characters)<input name="password" id="pw-new" type="password" autocomplete="new-password"></label>
       <button class="btn sm">Change password</button></form>
@@ -1396,7 +1434,7 @@ function termsPage(){
 }
 function privacyPage(){
   return legalPage("Privacy Policy","3 October 2026",[
-    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Place suggestions:</b> when you type a city or an address, the letters you type are sent to an OpenStreetMap search service (Photon) so that it can suggest places. Your name and account are not sent.","<b>Payments:</b> the lesson, the amount and the status of each payment. Card details are entered on Stripe's page and never reach SeastackSchool. Teachers who connect Stripe give their payout details to Stripe, not to us.","<b>Teachers:</b> a profile photo, if you add one."]],
+    ["What we collect",["<b>Every account:</b> your email address, your name, and a password, which is stored in scrambled form that we cannot read.","<b>Teachers:</b> the profile you write (headline, city, country, time zone, subjects, experience, education, qualifications, languages, introduction), your classes, lesson links or addresses, and the identity and qualification documents you upload.","<b>Students and parents:</b> if you choose to add them, your country, city, time zone, languages, your level, a few lines about you, what you want to learn, and a note for your teachers.","<b>Parents:</b> each child's first name and age, and an optional school grade and note for that child's teachers. We do not ask for a child's surname, email, photo or date of birth, and children do not have accounts.","<b>Affiliates:</b> if you choose to add them, your country, a website and how you promote the site.","<b>Schools:</b> the school's details, a contact person, and the documents you upload.","<b>Bookings:</b> which lesson was booked, who it is for, attendance, and when an online lesson was opened from the site.","<b>Ratings, reports and Help messages</b> that you send.","<b>Messages</b> between a teacher and a student or parent.","<b>Alerts:</b> a record of the alerts sent to you (for example a booking, a cancellation or a lesson reminder). We email these to your account's address unless you switch email alerts off under Password and account.","<b>Place suggestions:</b> when you type a city or an address, the letters you type are sent to an OpenStreetMap search service (Photon) so that it can suggest places. Your name and account are not sent.","<b>Payments:</b> the lesson, the amount and the status of each payment. Card details are entered on Stripe's page and never reach SeastackSchool. Teachers who connect Stripe give their payout details to Stripe, not to us.","<b>Teachers:</b> a profile photo, if you add one."]],
     ["Visits",["We record the page opened, the website the visit came from, the country, whether a phone or a computer was used, and the time. We do not use cookies for this and do not store IP addresses or names. Your choice of time zone and an affiliate code, if you arrived through one, are kept in your own browser."]],
     ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","A message is seen by the two people in the conversation. SeastackSchool staff can read messages when needed for safety.","A teacher's profile photo is public once the teacher is approved.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
@@ -1817,8 +1855,8 @@ render = function(){
   let r=routeName();
   // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
   if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
-  if(["admin","account","partner","myschool","school","schools","terms","privacy","messages"].includes(r)){
-    $("#app").innerHTML = r==="messages" ? messagesPage(location.hash.split("/")[2]) : r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
+  if(["admin","account","partner","myschool","school","schools","terms","privacy","messages","alerts"].includes(r)){
+    $("#app").innerHTML = r==="alerts" ? alertsPage() : r==="messages" ? messagesPage(location.hash.split("/")[2]) : r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
   fieldHints();
