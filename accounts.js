@@ -117,12 +117,13 @@ async function loadPublic(){
   (n.data||[]).forEach(x=>{ BOOKED[x.class_id+"@"+Date.parse(x.starts_at)] = +x.booked });
   for(const k in CANCELLED) delete CANCELLED[k];
   (cx.data||[]).forEach(x=>{ CANCELLED[x.class_id+"@"+Date.parse(x.starts_at)] = true });
-  for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
   // only qualifications the admin has verified against a document are public
   const qv = await sb.from("teacher_qualifications").select("id,teacher_id,title,issuer,year,verified_at").not("verified_at","is",null).order("created_at");
   const QV = {}; (qv.data||[]).forEach(q=>{ (QV[q.teacher_id] = QV[q.teacher_id] || []).push(q) });
   const lv = await sb.rpc("teacher_levels");
   const LV = {}; (lv.data||[]).forEach(x=>{ LV[x.teacher_id]=x });
+  // Clear and refill in one go, with nothing awaited in between: two loads running at once must not both add the same teachers.
+  for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(arr[i].real) arr.splice(i,1);
   const ok = new Set();
   t.data.forEach(x=>{ ok.add(x.id); TEACHERS.push({id:x.id,real:true,name:x.full_name||"New teacher",city:x.city,offset:tzOffset(x.timezone),tz:x.timezone,school:x.school_id,checked:!!x.identity_checked_at,color:"#C9D6F2",
     years:x.years_experience,langs:x.languages||[],subjects:[],rating:0,intro:x.intro,exp:x.experience,headline:x.headline||"",country:x.country||"",edu:x.education||"",subj:x.subjects||[],quals:qualList(QV[x.id]),photo:x.photo?photoUrl(x.id,x.photo):"",teaches:x.teaches||[],lvl:(LV[x.id]||{}).level||0,lessons:(LV[x.id]||{}).lessons||0,nrate:(LV[x.id]||{}).ratings||0,avg:+(LV[x.id]||{}).avg_stars||0}) });
