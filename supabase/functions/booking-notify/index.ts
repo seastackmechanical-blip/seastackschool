@@ -72,11 +72,20 @@ Deno.serve(async (req: Request) => {
   const by = b.cancelled_by === b.learner_id ? "the " + (learner?.role === "parent" ? "parent" : "student")
            : b.cancelled_by === c.teacher_id ? "the teacher" : "SeastackSchool";
 
+  // What happened to the money for this lesson, if it was paid for.
+  const { data: pay } = await db.from("payments").select("amount_cents, status").eq("booking_id", b.id).maybeSingle();
+  const amount = pay ? "$" + (pay.amount_cents / 100).toFixed(2).replace(/\.00$/, "") : "";
+  const money = !pay ? ""
+    : pay.status === "paid" ? `Paid: ${amount}.`
+    : pay.status === "refund_due" || pay.status === "refunded" ? `${amount} is being refunded to the card that paid. It can take several days to appear.`
+    : pay.status === "kept" ? `Not refunded: the lesson was cancelled with less notice than the refund rule allows.`
+    : "";
+
   const wrap = (title: string, lines: string[], link: string, linkText: string) =>
     `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:16px;line-height:1.5;color:#282748;max-width:520px">
       <h2 style="margin:0 0 12px">${esc(title)}</h2>${lines.map((l) => `<p style="margin:0 0 10px">${l}</p>`).join("")}
       <p style="margin:18px 0"><a href="${esc(link)}" style="background:#7153cd;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">${esc(linkText)}</a></p>
-      <p style="margin:0;color:#6f7082;font-size:13px">SeastackSchool. Online payment is not open yet, so nothing has been charged.</p></div>`;
+      <p style="margin:0;color:#6f7082;font-size:13px">SeastackSchool.${money ? " " + esc(money) : ""}</p></div>`;
 
   const mails: { to: string; subject: string; html: string }[] = [];
   const cls = esc(c.title), kid = esc(b.attendee_name), tName = esc(teacher?.full_name || "your teacher");

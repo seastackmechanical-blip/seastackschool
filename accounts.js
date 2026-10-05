@@ -450,7 +450,9 @@ async function adminRefund(id){
   q.delete("paid"); q.delete("stripe");
   history.replaceState(null,"",location.pathname+(q.toString()?"?"+q:"")+location.hash);
   setTimeout(()=>{
-    if(paid==="1"){ toast("Payment received. Your lesson is being booked."); [2500,8000].forEach(ms=>setTimeout(async()=>{ await loadMe(); await loadPublic(); render() },ms)) }
+    if(paid==="1"){ toast("Payment received. Your lesson is being booked."); [2500,8000].forEach(ms=>setTimeout(async()=>{ await loadMe(); await loadPublic(); render();
+      // a paid lesson is booked by the server, so the booking email is asked for here (it is only ever sent once)
+      if(A.user) A.bookings.filter(b=>b.learner_id===A.user.id && b.status==="booked" && Date.now()-Date.parse(b.created_at)<15*6e4).forEach(b=>notifyBooking(b.id,"booked")) },ms)) }
     else if(paid==="0") toast("Payment cancelled. Nothing was charged.");
     if(st) setTimeout(()=>{ if(A.teacher) payStatus(true) },2000);
   },600);
