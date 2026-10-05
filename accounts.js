@@ -174,7 +174,8 @@ async function loadMe(){
   if(A.teacher || A.learner){ const mc = await sb.rpc("my_message_contacts"); A.contacts = mc.data || [] }
   await loadAlerts();
   const np = await sb.from("notification_prefs").select("email").eq("user_id",A.user.id).maybeSingle(); A.alertEmail = !np.data || np.data.email !== false;
-  A.payout=null; A.pays=[];
+  A.payout=null; A.pays=[]; A.payWait=null;
+  if(A.teacher){ const pw = await sb.from("payout_waitlist").select("country").eq("teacher_id",A.user.id).maybeSingle(); A.payWait = pw.data ? pw.data.country : null }
   if(A.teacher){ const po = await sb.from("teacher_payouts").select("*").eq("teacher_id",A.user.id).maybeSingle(); A.payout = po.data || null }
   if(A.teacher || A.learner){ const py = await sb.from("payments").select("id,booking_id,learner_id,teacher_id,starts_at,attendee_name,title,amount_cents,fee_cents,status,refund_reason,created_at").order("created_at",{ascending:false}).limit(300); A.pays = py.data || [] }
   syncLearner();
@@ -197,6 +198,7 @@ async function loadAdmin(){
   const aq = await sb.from("teacher_qualifications").select("*").order("created_at"); A.aquals = aq.data || [];
   const am = await sb.rpc("admin_list_messages"); A.amsgs = am.data || [];
   const ap = await sb.rpc("admin_list_payments"); A.apays = ap.data || [];
+  const wl = await sb.from("payout_waitlist").select("country"); A.await = wl.data || [];
   const rr = await sb.rpc("admin_list_reviews"); if(!rr.error) A.rrows = rr.data;
   const at = await sb.rpc("admin_attention"); if(!at.error) A.attn = at.data;
   const ib = await sb.rpc("admin_inbox"); if(!ib.error) A.inbox = ib.data;
@@ -492,12 +494,29 @@ function teacherPayBox(){
   return `<div class="box" id="paybox"><h3>Getting paid</h3>
     <p class="muted small">Families pay for a lesson when they book it. You receive ${100-PAY.fee}% of your lesson price, paid to your bank account by Stripe. SeastackSchool keeps ${PAY.fee}%. If a lesson is refunded, your share of it is taken back.${PAY.enabled?"":" Online payment is not open yet. You can connect now so that you are ready."}</p>
     ${!p ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1;min-width:200px">Country you will be paid in<select id="pay-country"><option value="">Choose…</option>${PAY_COUNTRIES.map(c=>`<option value="${c[0]}" ${c[0]===guess?"selected":""}>${c[1]}</option>`).join("")}</select></label><button class="btn sm" id="paybtn" onclick="payConnect()">Connect Stripe</button></div>
-        <p class="small muted" style="margin:8px 0 0">Stripe can pay teachers in Canada, the United States, the United Kingdom, Switzerland and most of Europe. If your country is not listed, you cannot be paid through the site yet; we are working on a way to pay teachers everywhere. The country cannot be changed later.</p>`
+        <p class="small muted" style="margin:8px 0 0">Teachers can be paid in Canada, the United States, the United Kingdom, Switzerland and most of Europe. The country cannot be changed later.</p>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px"><b>My country isn't listed</b>
+          ${A.payWait ? `<p class="small" style="margin:6px 0 8px">You are on the list for <b>${esc(A.payWait)}</b>. We will send you an alert when teachers there can be paid. Until then you can build your profile, and your classes can be booked whenever online payment is switched off.</p><button class="btn ghost sm" onclick="payWaitLeave()">Take me off the list</button>`
+            : `<p class="small muted" style="margin:6px 0 8px">Paid lessons aren't available for teachers in other countries yet. Tell us where you are and we will alert you when that changes. You can still build your profile now.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="pay-wait-country" list="countrylist" maxlength="80" value="${esc(guess?"":(A.teacher.country||""))}" placeholder="Your country" aria-label="Your country" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="payWaitJoin()">Tell me when it's available</button></div>`}</div>`
       : p.charges_enabled ? `<div class="ok">You can take paid bookings.${p.payouts_enabled?"":" Stripe has not switched on payouts to your bank yet. Open your Stripe dashboard to see what it needs."}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" onclick="payDashboard()">Open my Stripe dashboard</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`
       : `<div class="notice">Stripe still needs some details from you before you can be paid.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" id="paybtn" onclick="payConnect()">Continue with Stripe</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`}
   </div>`;
+}
+async function payWaitJoin(){
+  const c=($("#pay-wait-country")?.value||"").trim();
+  if(c.length<2) return toast("Enter your country");
+  if(PAY_COUNTRIES.some(x=>x[1].toLowerCase()===c.toLowerCase())) return toast("Teachers in "+c+" can already be paid. Choose it in the list above and press Connect Stripe.");
+  const r = await sb.from("payout_waitlist").upsert({teacher_id:A.user.id,country:c},{onConflict:"teacher_id"});
+  if(r.error) return toast(r.error.message);
+  A.payWait=c; toast("You're on the list"); render();
+}
+async function payWaitLeave(){
+  const r = await sb.from("payout_waitlist").delete().eq("teacher_id",A.user.id);
+  if(r.error) return toast(r.error.message);
+  A.payWait=null; toast("Removed from the list"); render();
 }
 async function payConnect(){
   const sel=$("#pay-country"), country=sel?sel.value:"", btn=$("#paybtn");
@@ -535,6 +554,7 @@ function adminPayments(){
     <div class="${PAY.enabled?"ok":"notice"}" style="margin:0 0 14px"><b>Online payment is ${PAY.enabled?"ON":"OFF"}.</b> ${PAY.enabled?"Families pay when they book, and only teachers who have connected Stripe can be booked.":"Booking is free and nothing is charged. Switch it on only after your Stripe keys are saved and a test payment has worked."}
       <div style="margin-top:10px"><button class="btn sm ${PAY.enabled?"ghost":""}" onclick="setPayments(${!PAY.enabled})">${A.payConfirm?"Confirm: switch payment "+(PAY.enabled?"off":"on"):"Switch payment "+(PAY.enabled?"off":"on")}</button></div></div>
     <p class="muted">SeastackSchool keeps ${PAY.fee}% of each lesson. A family that cancels ${PAY.hours} hours or more before the lesson, and any lesson cancelled by the teacher or by you, is refunded in full automatically. Paid so far: <b>${usd(gross)}</b> in ${kept.length} ${kept.length===1?"lesson":"lessons"}, of which your fee is <b>${usd(fees)}</b> before Stripe's card charges.</p>
+    ${(w=>{ if(!w.length) return ""; const by={}; w.forEach(x=>{ by[x.country]=(by[x.country]||0)+1 }); return `<div class="box" style="margin-bottom:14px"><h3>Teachers waiting to be paid in other countries</h3><p class="muted small" style="margin:0 0 8px">Stripe pays teachers only in Canada, the United States, the United Kingdom, Switzerland and most of Europe. These teachers asked to be told when their country is added.</p><div class="chips">${Object.keys(by).sort((p,q)=>by[q]-by[p]).map(k=>`<span class="chip">${esc(k)}: ${by[k]}</span>`).join("")}</div></div>` })(A.await||[])}
     ${rows.length?`<div class="scroll"><table class="admin" style="min-width:860px"><thead><tr><th>Paid</th><th>Lesson</th><th>Family</th><th>Teacher</th><th>Amount</th><th>Your fee</th><th>Status</th><th>Action</th></tr></thead><tbody>
     ${rows.map(p=>{ const w=new Date(p.starts_at); return `<tr><td class="small">${new Date(p.paid_at||p.created_at).toLocaleDateString()}</td>
       <td><b>${esc(p.title)}</b><div class="small muted">${fmtDay(w)}, ${fmtTime(w)} · for ${esc(p.attendee_name)}</div></td>
