@@ -1,0 +1,24 @@
+{
+  "name": "SeastackSchool",
+  "short_name": "SeastackSchool",
+  "description": "Live classes with teachers everywhere. Find a class, book a lesson, message your teacher.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fffdf8",
+  "theme_color": "#6554cc",
+  "lang": "en",
+  "categories": ["education"],
+  "icons": [
+    { "src": "app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Find classes", "url": "/#/classes", "icons": [{ "src": "app/icon-192.png", "sizes": "192x192" }] },
+    { "name": "My lessons", "url": "/#/learning", "icons": [{ "src": "app/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Messages", "url": "/#/messages", "icons": [{ "src": "app/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

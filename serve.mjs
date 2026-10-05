@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), process.argv[2] || ".");
-const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".xml": "application/xml; charset=utf-8" };
+const types = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".xml": "application/xml; charset=utf-8", ".png": "image/png", ".webmanifest": "application/manifest+json" };
 http.createServer((req, res) => {
   // the built pages link to /seastackschool/..., the address they have on the public site
   let name = decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/+/, "").replace(/^seastackschool\/?/, "");

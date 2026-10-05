@@ -2376,3 +2376,42 @@ render = function(){
   });
   refresh();
 })();
+
+/* ---------- the phone app: the site installs to the home screen and opens full screen, like any app ---------- */
+let INSTALL_EVT = null;
+const IN_APP = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+const ON_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+if("serviceWorker" in navigator && location.protocol==="https:") window.addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}) });
+window.addEventListener("beforeinstallprompt", e=>{ e.preventDefault(); INSTALL_EVT=e; appBar(false) });
+window.addEventListener("appinstalled", ()=>{ INSTALL_EVT=null; const b=$("#appbar"); if(b) b.remove(); toast("SeastackSchool is installed") });
+window.addEventListener("offline", ()=>toast("You are offline. Booking and messages need a connection."));
+// The bar offers the app on phones. `asked` is true when the person pressed "Get the app" themselves.
+function appBar(asked){
+  const old=$("#appbar"); if(old) old.remove();
+  if(IN_APP){ if(asked) toast("You are already using the app"); return }
+  if(!asked){
+    try{ if(localStorage.getItem("ss:appbar")==="no") return }catch(e){}
+    if(innerWidth>860 || !(INSTALL_EVT || ON_IOS)) return;
+  }
+  const how = INSTALL_EVT ? "" : ON_IOS ? "In Safari, tap the Share button, then <b>Add to Home Screen</b>."
+    : "On your phone, open seastackschool.com in Chrome, open the menu, then choose <b>Install app</b> or <b>Add to Home screen</b>.";
+  const b=document.createElement("div"); b.id="appbar"; b.setAttribute("role","region"); b.setAttribute("aria-label","Get the SeastackSchool app");
+  b.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(0,0,0,.08);padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:12px;align-items:center";
+  b.innerHTML=`<img src="app/icon-192.png" alt="" width="44" height="44" style="border-radius:10px;flex:none">
+    <div style="flex:1;min-width:0"><b>Get the SeastackSchool app</b><div class="small muted">${how||"Free. Opens full screen from your home screen."}</div></div>
+    ${INSTALL_EVT?`<button class="btn sm" onclick="installApp()">Install</button>`:""}
+    <button class="btn sm ghost" aria-label="Close" onclick="appBarClose()">Not now</button>`;
+  document.body.appendChild(b);
+}
+function appBarClose(){ const b=$("#appbar"); if(b) b.remove(); try{ localStorage.setItem("ss:appbar","no") }catch(e){} }
+async function installApp(){
+  if(!INSTALL_EVT) return appBar(true);
+  const e=INSTALL_EVT; INSTALL_EVT=null; e.prompt();
+  try{ await e.userChoice }catch(x){}
+  const b=$("#appbar"); if(b) b.remove();
+}
+(function(){
+  const ft=document.querySelector("footer .footer-top");
+  if(ft && !IN_APP){ const a=document.createElement("a"); a.href="#"; a.id="getapp"; a.textContent="Get the app"; a.style.cssText="margin-left:auto;font-weight:700"; a.onclick=e=>{ e.preventDefault(); INSTALL_EVT ? installApp() : appBar(true) }; ft.appendChild(a) }
+  if(ON_IOS && !IN_APP) setTimeout(()=>appBar(false), 4000);
+})();

@@ -291,6 +291,13 @@ html[data-art-paused="true"] .art-illustration{--mx:0!important;--my:0!important
 .art-illustration.art-off>:first-child{animation-play-state:paused}
 @media(prefers-reduced-motion:reduce){.class-art::before,.class-art::after,.art-illustration>:first-child,.map-node{animation:none!important}.art-illustration{transition:none;transform:none}.feature-card.pre{opacity:1;transform:none}}
 </style>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#6554cc">
+<link rel="icon" type="image/png" sizes="192x192" href="app/icon-192.png">
+<link rel="apple-touch-icon" href="app/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SeastackSchool">
 </head>
 <body>
 <a class="sr" href="#app">Skip to content</a>
@@ -836,7 +843,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=37"></script>
+<script src="accounts.js?v=38"></script>
 
 </body>
 </html>
