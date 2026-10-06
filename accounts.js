@@ -18,8 +18,12 @@ const PAY = {enabled:false, fee:20, hours:24, payable:new Set()};
 const usd = cents => "$" + (cents/100).toFixed(2).replace(/\.00$/,"");
 // Countries where Stripe can pay a teacher out from a platform based in Canada: Canada, the US, the UK, the EEA and Switzerland.
 const PAY_COUNTRIES = [["AT","Austria"],["BE","Belgium"],["BG","Bulgaria"],["CA","Canada"],["HR","Croatia"],["CY","Cyprus"],["CZ","Czechia"],["DK","Denmark"],["EE","Estonia"],["FI","Finland"],["FR","France"],["DE","Germany"],["GR","Greece"],["HU","Hungary"],["IE","Ireland"],["IT","Italy"],["LV","Latvia"],["LI","Liechtenstein"],["LT","Lithuania"],["LU","Luxembourg"],["MT","Malta"],["NL","Netherlands"],["NO","Norway"],["PL","Poland"],["PT","Portugal"],["RO","Romania"],["SK","Slovakia"],["SI","Slovenia"],["ES","Spain"],["SE","Sweden"],["CH","Switzerland"],["GB","United Kingdom"],["US","United States"]];   // lesson dates a teacher has cancelled, keyed like BOOKED
-// Demo teachers and classes disappear by themselves once this many real teachers are listed.
-const DEMO_OFF_AT = 3;
+// The sample teachers and classes that filled the site before launch are switched off (owner, 5 Oct 2026).
+// They are removed here, before anything is drawn, so they never flash on screen. Set DEMO_OFF_AT above 0 and
+// delete the two lines below it to bring them back until that many real teachers are approved.
+const DEMO_OFF_AT = 0;
+for(const arr of [TEACHERS,CLASSES]) for(let i=arr.length-1;i>=0;i--) if(!arr[i].real) arr.splice(i,1);
+try{ S.bookings=[]; save() }catch(e){}
 // Schools stay out of the top menu until teachers and families are working well; their pages still exist.
 const SHOW_SCHOOLS_MENU = false;
 const BOOKED = {};   // seats taken per lesson, keyed "<class id>@<start in ms>"
