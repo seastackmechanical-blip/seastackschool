@@ -298,13 +298,14 @@ html[data-art-paused="true"] .art-illustration{--mx:0!important;--my:0!important
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="SeastackSchool">
+<style>.logo .logomark{width:34px;height:34px;border-radius:9px;display:block;flex:none}.seal{width:84px;height:84px;border-radius:20px;flex:none}</style>
 </head>
 <body>
 <a class="sr" href="#app">Skip to content</a>
 <div class="demo-ribbon">ONLINE PAYMENT IS NOT OPEN YET / NOTHING IS CHARGED WHEN YOU BOOK</div>
 <header class="top">
   <div class="wrap">
-    <a class="logo" href="#/"><span class="dot" aria-hidden="true"></span>SeastackSchool</a>
+    <a class="logo" href="#/"><img class="logomark" src="app/icon-192.png" alt="" width="34" height="34">SeastackSchool</a>
     <nav class="main" aria-label="Main">
       <a href="#/classes" data-r="classes">Find classes</a>
       <a href="#/learning" data-r="learning">My lessons</a>
@@ -322,7 +323,7 @@ html[data-art-paused="true"] .art-illustration{--mx:0!important;--my:0!important
   </div>
 </header>
 <main id="app"></main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="#/">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div><span class="paynote"> Online payment is not open yet; nothing is charged.</span> Lesson times are shown in <select id="tzpick" class="tzpick" aria-label="Time zone for lesson times" onchange="setTZ(this.value)" style="max-width:230px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:inherit"></select> <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a> · <a href="#/terms">Terms</a> · <a href="#/privacy">Privacy</a></div></footer>
+<footer><div class="wrap"><div class="footer-top"><img class="seal" src="app/seal-512.png" alt="SeastackSchool seal. Teachers everywhere." width="84" height="84" loading="lazy"><a class="logo" href="#/">SeastackSchool</a><span>Teachers everywhere.<br>Learning for anyone.</span></div><span class="paynote"> Online payment is not open yet; nothing is charged.</span> Lesson times are shown in <select id="tzpick" class="tzpick" aria-label="Time zone for lesson times" onchange="setTZ(this.value)" style="max-width:230px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:inherit"></select> <a href="#/account" onclick="A.mode='signup';A.kind='affiliate';A.err='';A.msg='';setTimeout(render,0)">Become an affiliate</a> · <a href="#/account" onclick="A.mode='signup';A.kind='school';A.err='';A.msg='';setTimeout(render,0)">Register a school</a> · <a href="#/terms">Terms</a> · <a href="#/privacy">Privacy</a></div></footer>
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

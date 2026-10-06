@@ -38,6 +38,7 @@ Deno.serve(async (req: Request) => {
     if (!to) { await db.from("notifications").update({ email_error: "no address" }).eq("id", n.id); skipped++; continue; }
     const link = site + (n.link || "");
     const html = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:16px;line-height:1.5;color:#282748;max-width:520px">
+      <img src="${site}app/seal-512.png" width="64" height="64" alt="SeastackSchool" style="display:block;border-radius:14px;margin:0 0 16px">
       <h2 style="margin:0 0 12px">${esc(n.title)}</h2>${n.body ? `<p style="margin:0 0 10px">${esc(n.body)}</p>` : ""}
       <p style="margin:18px 0"><a href="${esc(link)}" style="background:#7153cd;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Open SeastackSchool</a></p>
       <p style="margin:0;color:#6f7082;font-size:13px">You get this because you have an account on SeastackSchool. To stop these emails, sign in and switch off "Email me alerts" under Password and account.</p></div>`;

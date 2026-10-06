@@ -114,7 +114,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 <body>
 <a class="sr" href="#main">Skip to content</a>
 <header class="top"><div class="wrap">
-  <a class="logo" href="${BASE}"><span class="dot" aria-hidden="true"></span>SeastackSchool</a>
+  <a class="logo" href="${BASE}"><img class="logomark" src="${BASE}app/icon-192.png" alt="" width="34" height="34" style="width:34px;height:34px;border-radius:9px;display:block">SeastackSchool</a>
   <nav class="main" aria-label="Main">
     <a href="${BASE}classes/">Classes</a>
     <a href="${BASE}teachers/">Teachers</a>
@@ -126,7 +126,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 <main id="main" class="wrap page static">
 ${body}
 </main>
-<footer><div class="wrap"><div class="footer-top"><a class="logo" href="${BASE}">SeastackSchool<span style="color:#7660cd">✳</span></a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Online payment is not open yet; nothing is charged when you book. <a href="${BASE}schools/">Schools</a> · <a href="${BASE}#/terms">Terms</a> · <a href="${BASE}#/privacy">Privacy</a></div></footer>
+<footer><div class="wrap"><div class="footer-top"><img src="${BASE}app/seal-512.png" alt="SeastackSchool seal. Teachers everywhere." width="84" height="84" loading="lazy" style="width:84px;height:84px;border-radius:20px"><a class="logo" href="${BASE}">SeastackSchool</a><span>Teachers everywhere.<br>Learning for anyone.</span></div>Online payment is not open yet; nothing is charged when you book. <a href="${BASE}schools/">Schools</a> · <a href="${BASE}#/terms">Terms</a> · <a href="${BASE}#/privacy">Privacy</a></div></footer>
 ${track(trackPath)}
 </body>
 </html>

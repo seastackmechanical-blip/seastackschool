@@ -1,6 +1,6 @@
 // SeastackSchool app shell. The network is always tried first, so a new version of the site shows at once;
 // the saved copy is used only when the phone has no connection. Nothing from Supabase or Stripe is ever saved.
-const V = "ss-app-v1";
+const V = "ss-app-v2";
 const SHELL = ["./", "./index.html", "./app/icon-192.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => {
