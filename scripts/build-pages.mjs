@@ -190,6 +190,21 @@ const urls = [SITE];
   const ps = (await get("payment_settings", "select=fee_percent,refund_hours").catch(() => []))[0] || {};
   const legal = new Function("legalPage", "PAY", grab("termsPage") + grab("privacyPage") + "return [termsPage(), privacyPage()];")(
     (title, updated, sections) => ({ title, updated, sections }), { fee: ps.fee_percent ?? 20, hours: ps.refund_hours ?? 24 });
+  // How to delete an account and its data: app stores require this at a plain web address.
+  urls.push(page({
+    file: "delete-account/index.html", title: "Delete your SeastackSchool account", desc: "How to delete your SeastackSchool account and the data kept with it.", trackPath: "/delete-account",
+    body: `<div style="max-width:70ch"><h1>Delete your SeastackSchool account</h1>
+      <p class="lead">You can delete your SeastackSchool account yourself at any time, in the app or on the website. It takes effect at once.</p>
+      <h2 style="font-size:1.25rem;margin-top:24px">Steps</h2>
+      <ol><li>Sign in to SeastackSchool, in the app or at <a href="${BASE}#/account">seastackschool.com</a>.</li><li>Open <b>Account</b> (teachers: <b>My teacher account</b>, then <b>My profile</b>).</li><li>Open <b>Password and account</b>.</li><li>Under <b>Delete my account</b>, type DELETE and press <b>Delete my account</b>.</li></ol>
+      <p>A teacher with upcoming booked lessons is asked to cancel those lesson dates first, so no family is left with a lesson that will not happen.</p>
+      <h2 style="font-size:1.25rem;margin-top:24px">What is deleted</h2>
+      <p>Your sign-in, your profile, your photo, the documents you uploaded, your children’s details (parent accounts), your classes (teacher accounts), your bookings, the ratings you gave or received, your messages and your alerts.</p>
+      <h2 style="font-size:1.25rem;margin-top:24px">What is kept</h2>
+      <p>Records of payments and refunds are kept as financial records. They show the lesson title, the attendee’s name and the amount, and are no longer linked to an account.</p>
+      <h2 style="font-size:1.25rem;margin-top:24px">Cannot sign in?</h2>
+      <p>Write to us from the <a href="${BASE}#/help">Help page</a> using the email address of the account, and we will delete it for you after confirming the request comes from that address.</p></div>`,
+  }));
   for (const [doc, slug] of [[legal[0], "terms"], [legal[1], "privacy"]]) {
     const fix = (h) => String(h).split('href="#/').join('href="' + BASE + '#/');
     urls.push(page({
