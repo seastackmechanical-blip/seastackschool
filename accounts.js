@@ -2344,8 +2344,8 @@ render = function(){
   let r=routeName();
   // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
   if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
-  if(["admin","account","partner","myschool","school","schools","terms","privacy","messages","alerts"].includes(r)){
-    $("#app").innerHTML = r==="alerts" ? alertsPage() : r==="messages" ? messagesPage(location.hash.split("/")[2]) : r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
+  if(["admin","account","partner","myschool","school","schools","terms","privacy","messages","alerts","app"].includes(r)){
+    $("#app").innerHTML = r==="app" ? appPage() : r==="alerts" ? alertsPage() : r==="messages" ? messagesPage(location.hash.split("/")[2]) : r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   } else baseRender();
   fieldHints();
@@ -2378,9 +2378,9 @@ render = function(){
 })();
 
 /* ---------- the phone app: the site installs to the home screen and opens full screen, like any app ---------- */
-let INSTALL_EVT = null;
-const IN_APP = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
-const ON_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+var INSTALL_EVT = null;
+var IN_APP = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true || /SeastackSchoolApp/.test(navigator.userAgent);
+var ON_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 if("serviceWorker" in navigator && location.protocol==="https:") window.addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}) });
 window.addEventListener("beforeinstallprompt", e=>{ e.preventDefault(); INSTALL_EVT=e; appBar(false) });
 window.addEventListener("appinstalled", ()=>{ INSTALL_EVT=null; const b=$("#appbar"); if(b) b.remove(); toast("SeastackSchool is installed") });
@@ -2400,7 +2400,7 @@ function appBar(asked){
   b.innerHTML=`<img src="app/icon-192.png" alt="" width="44" height="44" style="border-radius:10px;flex:none">
     <div style="flex:1;min-width:0"><b>Get the SeastackSchool app</b><div class="small muted">${how||"Free. Opens full screen from your home screen."}</div></div>
     ${INSTALL_EVT?`<button class="btn sm" onclick="installApp()">Install</button>`:""}
-    <button class="btn sm ghost" aria-label="Close" onclick="appBarClose()">Not now</button>`;
+    <a class="btn sm ghost" href="#/app" onclick="appBarClose()">More</a><button class="btn sm ghost" aria-label="Close" onclick="appBarClose()">Not now</button>`;
   document.body.appendChild(b);
 }
 function appBarClose(){ const b=$("#appbar"); if(b) b.remove(); try{ localStorage.setItem("ss:appbar","no") }catch(e){} }
@@ -2412,6 +2412,63 @@ async function installApp(){
 }
 (function(){
   const ft=document.querySelector("footer .footer-top");
-  if(ft && !IN_APP){ const a=document.createElement("a"); a.href="#"; a.id="getapp"; a.textContent="Get the app"; a.style.cssText="margin-left:auto;font-weight:700"; a.onclick=e=>{ e.preventDefault(); INSTALL_EVT ? installApp() : appBar(true) }; ft.appendChild(a) }
+  if(ft && !IN_APP){ const a=document.createElement("a"); a.href="#"; a.id="getapp"; a.textContent="Get the app"; a.style.cssText="margin-left:auto;font-weight:700"; a.href="#/app"; ft.appendChild(a) }
   if(ON_IOS && !IN_APP) setTimeout(()=>appBar(false), 4000);
 })();
+
+// The "Get the app" page: every way to put SeastackSchool on a phone.
+var APK_VERSION = null;
+(async function(){ try{ const r = await fetch("downloads/version.txt",{cache:"no-store"}); if(r.ok){ const t=(await r.text()).trim(); if(/^[\d.]{1,20}$/.test(t)){ APK_VERSION=t; if(routeName()==="app") render() } } }catch(e){} })();
+function appPage(){
+  const card=(title, body)=>`<div class="box" style="margin:0"><h3 style="margin-top:0">${title}</h3>${body}</div>`;
+  return `<div class="wrap page" style="max-width:860px"><h2>Get the SeastackSchool app</h2>
+    <p class="muted">Free. Book lessons, message your teacher and get alerts from your phone. ${IN_APP?"<b>You are using the app now.</b>":""}</p>
+    <div style="display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+    ${card("Android phone", APK_VERSION
+      ? `<p class="small muted">Download the app file and open it. Android asks once to allow installing from your browser; say yes. Version ${esc(APK_VERSION)}.</p><a class="btn sm" href="downloads/seastackschool.apk" download>Download for Android</a>
+         <p class="small muted" style="margin:10px 0 0">Or, in Chrome, ${INSTALL_EVT?`<a href="#" onclick="event.preventDefault();installApp()">install it in one tap</a>`:"open the menu and choose <b>Install app</b>"}; nothing to download.</p>`
+      : `<p class="small muted">In Chrome, open the menu and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>${INSTALL_EVT?`<button class="btn sm" onclick="installApp()">Install</button>`:""}`)}
+    ${card("iPhone or iPad", `<p class="small muted" style="margin-bottom:0">Open seastackschool.com in <b>Safari</b>, tap the Share button, then <b>Add to Home Screen</b>. The SeastackSchool icon appears with your other apps.</p>`)}
+    ${card("Computer", `<p class="small muted" style="margin-bottom:0">Nothing to install. Use seastackschool.com in any browser. In Chrome or Edge you can also choose <b>Install SeastackSchool</b> from the address bar.</p>`)}
+    </div>
+    <p class="small muted" style="margin-top:16px">The app and the website are the same account and the same lessons. The app updates itself.</p></div>`;
+}
+
+// In the app, the main places sit in a bar at the bottom of the screen, where a thumb reaches them.
+var TAB_ICONS = {
+  find:'<path d="M11 4a7 7 0 1 0 4.4 12.5l4 4 1.4-1.4-4-4A7 7 0 0 0 11 4zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/>',
+  lessons:'<path d="M7 3v2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2V3h-2v2H9V3H7zm-2 8h14v8H5v-8z"/>',
+  chat:'<path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v10h2v2l2.5-2H20V6H4z"/>',
+  bell:'<path d="M12 3a6 6 0 0 0-6 6v4l-2 3v1h16v-1l-2-3V9a6 6 0 0 0-6-6zm-2 16a2 2 0 0 0 4 0h-4z"/>',
+  me:'<path d="M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 10c4.4 0 8 2 8 4.5V20H4v-1.5C4 16 7.600 14 12 14z"/>',
+  teach:'<path d="M12 4 2 9l10 5 8-4v6h2V9L12 4zm-6 9.200V16c0 1.700 2.700 3 6 3s6-1.300 6-3v-2.800l-6 3-6-3z"/>'
+};
+function tabBar(){
+  if(!IN_APP) return;
+  document.body.classList.add("in-app");
+  let b=$("#tabbar");
+  if(!b){
+    b=document.createElement("nav"); b.id="tabbar"; b.setAttribute("aria-label","Main");
+    document.body.appendChild(b);
+    const st=document.createElement("style");
+    st.textContent=`#tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;background:var(--surface);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px))}
+      #tabbar a{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;border-radius:10px;text-decoration:none;color:var(--muted);font-size:11px;font-weight:700;position:relative}
+      #tabbar a.on{color:var(--pen)}#tabbar svg{width:24px;height:24px;fill:currentColor}
+      #tabbar .n{position:absolute;top:0;left:calc(50% + 4px);background:var(--pen);color:#fff;border-radius:999px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 4px}
+      @media (max-width:860px){body.in-app{padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}body.in-app nav.main{display:none}body.in-app #toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}body.in-app #appbar{display:none}}
+      @media (min-width:861px){#tabbar{display:none}}
+      body.in-app{overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}`;
+    document.head.appendChild(st);
+  }
+  const r=routeName(), un=A.alerts.filter(x=>!x.read_at).length, um=A.contacts.reduce((s,c)=>s+(c.unread||0),0);
+  const home = !A.user ? "#/account" : A.teacher ? "#/studio" : A.staffer ? "#/admin" : A.aff ? "#/partner" : A.school ? "#/myschool" : "#/account";
+  const items = [["find","Classes","#/classes",["","classes","class","teacher","schools","school"]]];
+  if(A.teacher) items.push(["teach","My classes","#/studio",["studio"]]); else items.push(["lessons","My lessons","#/learning",["learning"]]);
+  if(A.teacher || A.learner) items.push(["chat","Messages","#/messages",["messages"],um]);
+  if(A.user) items.push(["bell","Alerts","#/alerts",["alerts"],un]);
+  items.push(["me", A.user ? (A.staffer?"Admin":A.school?"School":A.aff?"Affiliate":"Account") : "Sign in", A.teacher ? "#/account" : home, A.teacher?["account"]:["account","admin","partner","myschool"]]);
+  b.innerHTML = items.map(([ic,label,href,routes,n])=>`<a href="${href}" class="${routes.includes(r)?"on":""}" ${routes.includes(r)?'aria-current="page"':""}><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_ICONS[ic]}</svg>${label}${n?`<span class="n">${n>9?"9+":n}</span>`:""}</a>`).join("");
+}
+{ const baseChrome = chrome; chrome = function(){ baseChrome(); tabBar() }; }
+window.addEventListener("hashchange", ()=>setTimeout(tabBar, 0));
+tabBar();

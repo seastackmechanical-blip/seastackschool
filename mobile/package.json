@@ -1,0 +1,16 @@
+{
+  "name": "seastackschool-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SeastackSchool Android app: a Capacitor shell that opens the live site, so the app is always the current version.",
+  "dependencies": {
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/splash-screen": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0"
+  }
+}

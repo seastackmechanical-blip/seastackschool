@@ -172,6 +172,8 @@ for (const f of ["index.html", "accounts.js", ".nojekyll"]) fs.copyFileSync(path
 // the installable phone app: its description, its offline shell and its icons
 for (const f of ["manifest.webmanifest", "sw.js"]) fs.copyFileSync(path.join(root, f), path.join(out, f));
 fs.cpSync(path.join(root, "app"), path.join(out, "app"), { recursive: true });
+// the Android app file people download, when one has been built
+if (fs.existsSync(path.join(root, "downloads"))) fs.cpSync(path.join(root, "downloads"), path.join(out, "downloads"), { recursive: true });
 // index.html names the public address in its search-engine tags; point them at the address being built for.
 const FIRST_ADDRESS = "https://seastackmechanical-blip.github.io/seastackschool/";
 if (SITE !== FIRST_ADDRESS) fs.writeFileSync(path.join(out, "index.html"), app.split(FIRST_ADDRESS).join(SITE));

@@ -1,0 +1,120 @@
+name: Android APK
+
+# Builds the SeastackSchool Android app (an installable APK for direct download) and publishes it to
+# https://seastackschool.com/downloads/seastackschool.apk .
+#
+# The app is a Capacitor shell that opens the live site, so it never goes stale: publishing the site updates the
+# app. This workflow runs only when asked (Actions tab) or when mobile/.build-trigger changes.
+#
+# Signing: with the ANDROID_KEYSTORE_* secrets it builds a release-signed APK. Without them it stops, because an
+# app signed with a throwaway key cannot be updated later.
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "mobile/.build-trigger"
+
+permissions:
+  contents: write   # the last step commits the APK back to the repository
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21   # Capacitor 7 compiles against Java 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools   # the default also asks for 'tools', which Google's SDK repo no longer lists
+
+      - name: Install Capacitor and generate the Android project
+        working-directory: mobile
+        run: |
+          npm install
+          npx cap add android
+          npx cap sync android
+
+      - name: Launcher icon and splash screen (the SeastackSchool tile, not Capacitor's stock icon)
+        working-directory: mobile
+        run: |
+          npx --yes @capacitor/assets@3 generate --android --assetPath assets \
+            --iconBackgroundColor '#6554cc' --iconBackgroundColorDark '#6554cc' \
+            --splashBackgroundColor '#fffdf8' --splashBackgroundColorDark '#1b1a33'
+          ls android/app/src/main/res/mipmap-xxxhdpi/
+
+      - name: Target Android 16 (API 36), minimum Android 7
+        working-directory: mobile/android
+        run: |
+          sed -i -E 's/(compileSdkVersion = )[0-9]+/\136/; s/(targetSdkVersion = )[0-9]+/\136/; s/minSdkVersion = [0-9]+/minSdkVersion = 24/' variables.gradle
+          grep -q 'suppressUnsupportedCompileSdk' gradle.properties || echo 'android.suppressUnsupportedCompileSdk=36' >> gradle.properties
+          yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null 2>&1 || sdkmanager "platforms;android-36" || true
+          cat variables.gradle
+
+      - name: Version number
+        working-directory: mobile/android
+        run: |
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" app/build.gradle
+          grep -n 'versionCode\|versionName\|applicationId' app/build.gradle
+
+      - name: Harden (no adb backup of the signed-in session)
+        working-directory: mobile/android
+        run: |
+          M=app/src/main/AndroidManifest.xml
+          if grep -q 'android:allowBackup' "$M"; then
+            sed -i -E 's/android:allowBackup="[^"]*"/android:allowBackup="false"/' "$M"
+          else
+            sed -i -E 's/(<application)/\1 android:allowBackup="false"/' "$M"
+          fi
+          grep -q 'tools:replace="android:allowBackup"' "$M" || sed -i -E 's/(<application[^>]*android:allowBackup="false")/\1 tools:replace="android:allowBackup"/' "$M"
+          grep -q 'xmlns:tools' "$M" || sed -i -E 's|(<manifest )|\1xmlns:tools="http://schemas.android.com/tools" |' "$M"
+          grep -n 'allowBackup' "$M"
+
+      - name: Build the release-signed APK
+        working-directory: mobile/android
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
+            echo "The ANDROID_KEYSTORE_* secrets are missing. Not building: an app signed with a throwaway key cannot be updated."; exit 1
+          fi
+          chmod +x ./gradlew
+          printf %s "$KS_B64" | tr -d "[:space:]" | base64 -d > "$RUNNER_TEMP/school.keystore"
+          ./gradlew --no-daemon assembleRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/school.keystore" \
+            -Pandroid.injected.signing.store.password="$KS_PASS" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASS"
+          ls -la app/build/outputs/apk/release/
+
+      - name: Keep the APK with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: seastackschool-android-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Publish the APK to the site
+        run: |
+          mkdir -p downloads
+          cp mobile/android/app/build/outputs/apk/release/app-release.apk downloads/seastackschool.apk
+          echo "1.0.${{ github.run_number }}" > downloads/version.txt
+          ls -la downloads
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f downloads/seastackschool.apk downloads/version.txt
+          git commit -m "Publish Android APK 1.0.${{ github.run_number }}"
+          git pull --rebase origin main
+          git push

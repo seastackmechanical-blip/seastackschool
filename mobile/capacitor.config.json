@@ -1,0 +1,28 @@
+{
+  "appId": "com.seastackschool.app",
+  "appName": "SeastackSchool",
+  "webDir": "www",
+  "backgroundColor": "#fffdf8",
+  "appendUserAgent": "SeastackSchoolApp",
+  "server": {
+    "url": "https://seastackschool.com/",
+    "cleartext": false,
+    "androidScheme": "https",
+    "allowNavigation": ["seastackschool.com", "www.seastackschool.com", "checkout.stripe.com", "connect.stripe.com", "*.stripe.com"]
+  },
+  "android": {
+    "backgroundColor": "#fffdf8"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "backgroundColor": "#fffdf8",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_CROP"
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#fffdf8"
+    }
+  }
+}
