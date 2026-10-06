@@ -181,6 +181,25 @@ if (SITE !== FIRST_ADDRESS) fs.writeFileSync(path.join(out, "index.html"), app.s
 if (BASE === "/") fs.writeFileSync(path.join(out, "robots.txt"), `User-agent: *\nAllow: /\n\nSitemap: ${SITE}sitemap.xml\n`);
 
 const urls = [SITE];
+
+// Terms and Privacy as plain pages at their own addresses (app stores and search engines need a normal web page).
+// The wording is read from accounts.js, so there is one copy of it.
+{
+  const src = fs.readFileSync(path.join(root, "accounts.js"), "utf8").split(String.fromCharCode(13)).join("");
+  const grab = (name) => { const s = src.indexOf("function " + name + "(){"); return s < 0 ? "" : src.slice(s, src.indexOf(String.fromCharCode(10) + "}" + String.fromCharCode(10), s) + 3); };
+  const ps = (await get("payment_settings", "select=fee_percent,refund_hours").catch(() => []))[0] || {};
+  const legal = new Function("legalPage", "PAY", grab("termsPage") + grab("privacyPage") + "return [termsPage(), privacyPage()];")(
+    (title, updated, sections) => ({ title, updated, sections }), { fee: ps.fee_percent ?? 20, hours: ps.refund_hours ?? 24 });
+  for (const [doc, slug] of [[legal[0], "terms"], [legal[1], "privacy"]]) {
+    const fix = (h) => String(h).split('href="#/').join('href="' + BASE + '#/');
+    urls.push(page({
+      file: slug + "/index.html", title: doc.title + " | SeastackSchool", desc: "SeastackSchool " + doc.title + ", last updated " + doc.updated + ".", trackPath: "/" + slug,
+      body: `<div style="max-width:70ch"><h1>${esc(doc.title)}</h1><p class="muted small">SeastackSchool. Last updated ${esc(doc.updated)}</p>
+        ${doc.sections.map(([h, list]) => `<h2 style="font-size:1.25rem;margin-top:24px">${fix(h)}</h2>${list.map((p) => `<p>${fix(p)}</p>`).join("")}`).join("")}
+        <p class="muted small" style="margin-top:28px">Questions about this page? Write to us from the <a href="${BASE}#/help">Help page</a>.</p></div>`,
+    }));
+  }
+}
 const classCard = (c) => { const t = tById.get(c.teacher_id); return `<a class="listing linkcard" href="${BASE}classes/${cSlug(c)}/" style="grid-template-columns:1fr auto">
   <div><span class="tag ${c.type}">${esc(typeLabel(c))}</span><h3 style="margin:6px 0 2px">${esc(c.title)}</h3>
     <div class="small">with ${esc(t.full_name || "a SeastackSchool teacher")}${t.city ? ` <span class="muted">from ${esc(t.city)}</span>` : ""}</div>
