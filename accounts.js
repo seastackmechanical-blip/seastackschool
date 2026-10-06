@@ -2457,7 +2457,8 @@ function tabBar(){
       #tabbar .n{position:absolute;top:0;left:calc(50% + 4px);background:var(--pen);color:#fff;border-radius:999px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 4px}
       @media (max-width:860px){body.in-app{padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}body.in-app nav.main{display:none}body.in-app #toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}body.in-app #appbar{display:none}}
       @media (min-width:861px){#tabbar{display:none}}
-      body.in-app{overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}`;
+      body.in-app{overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}
+      body.in-app::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:30}`;
     document.head.appendChild(st);
   }
   const r=routeName(), un=A.alerts.filter(x=>!x.read_at).length, um=A.contacts.reduce((s,c)=>s+(c.unread||0),0);
