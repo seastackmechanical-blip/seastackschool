@@ -52,6 +52,13 @@ jobs:
             --splashBackgroundColor '#fffdf8' --splashBackgroundColorDark '#1b1a33'
           ls android/app/src/main/res/mipmap-xxxhdpi/
 
+      - name: Dark clock and battery icons (the app's background is light)
+        working-directory: mobile/android
+        run: |
+          S=app/src/main/res/values/styles.xml
+          sed -i -E 's|(<style name="AppTheme\.NoActionBar[^>]*>)|\1\n        <item name="android:windowLightStatusBar">true</item>|' "$S"
+          cat "$S"
+
       - name: Target Android 16 (API 36), minimum Android 7
         working-directory: mobile/android
         run: |
