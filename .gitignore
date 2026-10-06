@@ -1,3 +1,6 @@
 _site/
 _site_cf/
 .wrangler/
+_app-on-phone.png
+_app-icon-on-phone.png
+play/*.aab

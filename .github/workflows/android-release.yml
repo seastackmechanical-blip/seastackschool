@@ -1,22 +1,18 @@
-name: Android APK
+name: Android release for Google Play
 
-# Builds the SeastackSchool Android app (an installable APK for direct download) and publishes it to
-# https://seastackschool.com/downloads/seastackschool.apk .
-#
-# The app is a Capacitor shell that opens the live site, so it never goes stale: publishing the site updates the
-# app. This workflow runs only when asked (Actions tab) or when mobile/.build-trigger changes.
-#
-# Signing: with the ANDROID_KEYSTORE_* secrets it builds a release-signed APK. Without them it stops, because an
-# app signed with a throwaway key cannot be updated later.
+# Builds the SeastackSchool app bundle (AAB) for Google Play: package com.seastackschool.app, signed with the
+# Play upload key (PLAY_UPLOAD_* secrets). Nothing is published by this workflow: the bundle is kept with the run,
+# to be uploaded in Play Console. Runs when asked, or when mobile/.play-trigger changes.
+# The version code is 100 + the run number, so it always rises.
 on:
   workflow_dispatch: {}
   push:
     branches: [main]
     paths:
-      - "mobile/.build-trigger"
+      - "mobile/.play-trigger"
 
 permissions:
-  contents: write   # the last step commits the APK back to the repository
+  contents: read
 
 jobs:
   apk:
@@ -70,16 +66,8 @@ jobs:
       - name: Version number
         working-directory: mobile/android
         run: |
-          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" app/build.gradle
+          sed -i -E "s/versionCode [0-9]+/versionCode $(( 100 + ${{ github.run_number }} ))/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" app/build.gradle
           grep -n 'versionCode\|versionName\|applicationId' app/build.gradle
-
-      - name: Direct-download identity (so it can sit beside the Google Play app on one phone)
-        working-directory: mobile/android
-        run: |
-          # Google Play signs its copy with Google's key, so the Play app and this directly downloaded one
-          # cannot share a package name: Android would refuse to install one over the other.
-          sed -i -E 's/applicationId "com.seastackschool.app"/applicationId "com.seastackschool.app.direct"/' app/build.gradle
-          grep -n 'applicationId' app/build.gradle
 
       - name: Harden (no adb backup of the signed-in session)
         working-directory: mobile/android
@@ -94,42 +82,23 @@ jobs:
           grep -q 'xmlns:tools' "$M" || sed -i -E 's|(<manifest )|\1xmlns:tools="http://schemas.android.com/tools" |' "$M"
           grep -n 'allowBackup' "$M"
 
-      - name: Build the release-signed APK
+      - name: Build the app bundle (AAB) signed with the Play upload key
         working-directory: mobile/android
         env:
-          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KS_B64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
         run: |
-          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
-            echo "The ANDROID_KEYSTORE_* secrets are missing. Not building: an app signed with a throwaway key cannot be updated."; exit 1
-          fi
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then echo "The PLAY_UPLOAD_* secrets are missing."; exit 1; fi
           chmod +x ./gradlew
-          printf %s "$KS_B64" | tr -d "[:space:]" | base64 -d > "$RUNNER_TEMP/school.keystore"
-          ./gradlew --no-daemon assembleRelease \
-            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/school.keystore" \
-            -Pandroid.injected.signing.store.password="$KS_PASS" \
-            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$KEY_PASS"
-          ls -la app/build/outputs/apk/release/
+          printf %s "$KS_B64" | tr -d "[:space:]" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+          ./gradlew --no-daemon bundleRelease             -Pandroid.injected.signing.store.file="$RUNNER_TEMP/upload.keystore"             -Pandroid.injected.signing.store.password="$KS_PASS"             -Pandroid.injected.signing.key.alias="$KEY_ALIAS"             -Pandroid.injected.signing.key.password="$KEY_PASS"
+          ls -la app/build/outputs/bundle/release/
 
-      - name: Keep the APK with this run
+      - name: Keep the bundle with this run (download it and upload it in Play Console)
         uses: actions/upload-artifact@v4
         with:
-          name: seastackschool-android-apk
-          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          name: seastackschool-play-aab
+          path: mobile/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
-
-      - name: Publish the APK to the site
-        run: |
-          mkdir -p downloads
-          cp mobile/android/app/build/outputs/apk/release/app-release.apk downloads/seastackschool.apk
-          echo "1.0.${{ github.run_number }}" > downloads/version.txt
-          ls -la downloads
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f downloads/seastackschool.apk downloads/version.txt
-          git commit -m "Publish Android APK 1.0.${{ github.run_number }}"
-          git pull --rebase origin main
-          git push
