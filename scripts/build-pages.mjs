@@ -171,6 +171,8 @@ fs.mkdirSync(out, { recursive: true });
 for (const f of ["index.html", "accounts.js", ".nojekyll"]) fs.copyFileSync(path.join(root, f), path.join(out, f));
 // the installable phone app: its description, its offline shell and its icons
 for (const f of ["manifest.webmanifest", "sw.js"]) fs.copyFileSync(path.join(root, f), path.join(out, f));
+// ownership files that Google Search Console checks for; they must stay in place
+for (const f of fs.readdirSync(root)) if (/^google[0-9a-f]+.html$/.test(f)) fs.copyFileSync(path.join(root, f), path.join(out, f));
 fs.cpSync(path.join(root, "app"), path.join(out, "app"), { recursive: true });
 // the Android app file people download, when one has been built
 if (fs.existsSync(path.join(root, "downloads"))) fs.cpSync(path.join(root, "downloads"), path.join(out, "downloads"), { recursive: true });
