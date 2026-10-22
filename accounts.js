@@ -172,6 +172,7 @@ async function loadMe(){
   if(A.aff){ const d = await sb.rpc("my_affiliate_dashboard"); A.adash = d.error ? null : d.data }
   A.school = sc.data || null; A.schoolPriv = sp.data || null;
   if(A.school) await loadSchoolExtras();
+  if(A.teacher && A.teacher.status!=="approved"){ const n = await sb.rpc("my_teacher_note"); A.tnote = n.error ? null : n.data } else A.tnote=null;
   if(A.teacher && A.teacher.school_id){ const r = await sb.from("schools").select("id,name,status").eq("id",A.teacher.school_id).maybeSingle(); A.mySchool = r.data || null }
   A.tdocs = A.teacher ? await listDocs(A.user.id, "teacher-docs") : [];
   A.quals = [];
@@ -248,8 +249,8 @@ function chrome(){
 function schoolPayBox(){
   const p=A.payout, guess=(PAY_COUNTRIES.find(c=>c[1].toLowerCase()===(A.school.country||"").trim().toLowerCase())||[""])[0];
   return `<div class="box" id="paybox"><h3>Getting paid</h3>
-    <p class="muted small">Families pay your school for every lesson your teachers give. Your school receives ${100-PAY.fee}% of each lesson price, paid to its bank account by Stripe. SeastackSchool keeps ${PAY.fee}%. Your school pays its own teachers. If a lesson is refunded, your share of it is taken back.${PAY.enabled?"":" Online payment is not open yet. You can connect now so that you are ready."}</p>
-    ${!p ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1;min-width:200px">Country your school is paid in<select id="pay-country"><option value="">Choose…</option>${PAY_COUNTRIES.map(c=>`<option value="${c[0]}" ${c[0]===guess?"selected":""}>${c[1]}</option>`).join("")}</select></label><button class="btn sm" id="paybtn" onclick="payConnect()">Connect Stripe</button></div>
+    <p class="muted small">Families pay your school for every lesson your teachers give. Your school receives ${100-PAY.fee}% of each lesson price, paid to its bank account by Stripe. SeastackSchool keeps ${PAY.fee}%. Your school pays its own teachers. If a lesson is refunded, your share of it is taken back: families who cancel ${PAY.hours||24} hours or more before a lesson are refunded, later cancellations are not, and you keep your share of those.${PAY.enabled?"":" Online payment is not open yet. You can connect now so that you are ready."}</p>
+    ${!p ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end"><label class="field" style="flex:1;min-width:200px">Country your school is paid in<select id="pay-country"><option value="">Choose…</option>${PAY_COUNTRIES.map(c=>`<option value="${c[0]}" ${c[0]===guess?"selected":""}>${c[1]}</option>`).join("")}</select></label><button class="btn sm" id="paybtn" onclick="if(!$('#pay-country').value) return toast('Choose the country you will be paid in'); if(A.payCountryOk!==$('#pay-country').value){ A.payCountryOk=$('#pay-country').value; this.textContent='Paid in '+$('#pay-country').selectedOptions[0].text+'? Confirm'; return } payConnect()">Connect Stripe</button></div>
         <p class="small muted" style="margin:8px 0 0">Schools can be paid in Canada, the United States, the United Kingdom, Switzerland and most of Europe. The country cannot be changed later. Your teachers do not connect Stripe.</p>`
       : p.charges_enabled ? `<div class="ok">Your school can take paid bookings.${p.payouts_enabled?"":" Stripe has not switched on payouts to your bank yet. Open your Stripe dashboard to see what it needs."}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn sm" onclick="payDashboard()">Open the school's Stripe dashboard</button><button class="btn ghost sm" onclick="payStatus(true)">Check again</button></div>`
@@ -320,7 +321,7 @@ function schoolClassForm(x, team){
     <label class="field">Subject${subjectSelect("sc2-subject", v.subject)}</label>
     <label class="field">Teaching language<input name="lang" id="sc2-lang" maxlength="60" value="${esc(v.language)}"></label>
     <label class="field">Student level<select name="level" id="sc2-level">${["Beginner","Intermediate","Advanced"].map(l=>`<option ${l===v.level?"selected":""}>${l}</option>`).join("")}</select></label>
-    <label class="field">Price per lesson (USD)<input name="price" id="sc2-price" type="number" min="1" value="${v.price===""?"":+v.price}"></label>
+    <label class="field">Price per lesson, in US dollars<input name="price" id="sc2-price" type="number" min="1" value="${v.price===""?"":+v.price}"></label>
     <label class="field">Kind of class<select name="type" id="sc2-type" ${dis} onchange="$('#sc2-capwrap').hidden=this.value==='private'"><option value="group" ${v.type==="group"?"selected":""}>Small group class</option><option value="private" ${v.type==="private"?"selected":""}>Private lesson</option></select></label>
     <label class="field" id="sc2-capwrap" ${v.type==="private"?"hidden":""}>Maximum class size<input name="cap" id="sc2-cap" type="number" min="2" max="50" value="${v.type==="group"?v.capacity:6}"></label>
     <label class="field">Youngest age<input name="a0" id="sc2-a0" type="number" min="3" value="${v.age_min}"></label>
@@ -428,6 +429,7 @@ function threadView(c){
     <form id="msgf" novalidate onsubmit="event.preventDefault();sendMsg(this,'${c.other_id}')" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:12px">
       <label class="field" style="flex:1;min-width:220px">Your message<textarea name="body" id="msg-body" rows="2" maxlength="2000"></textarea></label>
       <button class="btn">Send</button></form>
+    <p class="small muted" style="margin:8px 0 0">For everyone's safety, phone numbers, email addresses and other apps can't be shared here.${A.teacher?"":` Something wrong? <a href="#/teacher/${c.other_id}">Report this teacher</a> from their page.`}</p>
   </div>`;
 }
 async function loadThread(other){
@@ -1021,6 +1023,7 @@ function authPage(){
       ${up?`<label class="field">Full name<input name="full_name" id="au-name" required maxlength="120" autocomplete="name"></label>
       <label class="field" id="au-schoolwrap" ${A.kind==="school"?"":"hidden"}>School name<input name="school_name" id="au-school" maxlength="140"></label>
       <label class="field" id="au-codewrap" ${A.kind==="teacher"?"":"hidden"}>School code, if a school invited you (optional)<input name="school_code" id="au-code" maxlength="12" value="${esc(schoolCodeFromLink())}"></label>
+      <label class="field" id="au-birthwrap" ${A.kind==="student"?"":"hidden"}>Year of birth (students must be 13 or older; it can't be changed later)<input name="birth_year" id="au-birth" type="number" inputmode="numeric" min="1900" max="${new Date().getFullYear()-13}" placeholder="e.g. ${new Date().getFullYear()-16}"></label>
       <label class="field" id="au-pitchwrap" ${A.kind==="affiliate"?"":"hidden"}>How will you tell people about SeastackSchool? (optional)<textarea name="pitch" id="au-pitch" rows="2" maxlength="600"></textarea></label>`:""}
       <label class="field">Email<input name="email" id="au-email" type="email" required autocomplete="email"></label>
       ${fg?"":`<label class="field">Password${up?" (at least 8 characters)":""}<input name="password" id="au-pass" type="password" required minlength="${up?8:1}" autocomplete="${up?"new-password":"current-password"}"></label>`}
@@ -1035,7 +1038,7 @@ function authPage(){
 }
 function kindFields(){
   const k=A.kind, set=(id,on)=>{ const e=$(id); if(e) e.hidden=!on };
-  set("#au-schoolwrap", k==="school"); set("#au-codewrap", k==="teacher"); set("#au-pitchwrap", k==="affiliate");
+  set("#au-schoolwrap", k==="school"); set("#au-birthwrap", k==="student"); set("#au-codewrap", k==="teacher"); set("#au-pitchwrap", k==="affiliate");
 }
 async function authSubmit(f){
   const btn=$("#authbtn"), errEl=$("#autherr"), label=btn.textContent, email=f.email.value.trim(), back=location.origin+location.pathname;
@@ -1043,6 +1046,9 @@ async function authSubmit(f){
   const fail = m => { errEl.textContent=m; btn.disabled=false; btn.textContent=label };
   if(A.mode==="signup" && !f.full_name.value.trim()) return fail("Enter your full name.");
   if(A.mode==="signup" && f.kind.value==="school" && !f.school_name.value.trim()) return fail("Enter your school's name.");
+  const born = A.mode==="signup" && f.kind.value==="student" ? +f.birth_year.value : null, yr=new Date().getFullYear();
+  if(A.mode==="signup" && f.kind.value==="student" && !(born>=1900 && born<=yr)) return fail("Enter your year of birth, like "+(yr-16)+".");
+  if(A.mode==="signup" && f.kind.value==="student" && yr-born<13) return fail("Student accounts are for ages 13 and over. Ask a parent to create a parent account and add you to it.");
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("Enter a valid email address, like name@example.com.");
   if(A.mode==="signup" && f.password.value.length<8) return fail("Choose a password with at least 8 characters.");
   if(A.mode==="signin" && !f.password.value) return fail("Enter your password.");
@@ -1050,7 +1056,7 @@ async function authSubmit(f){
   let error=null;
   try{
     if(A.mode==="signup"){
-      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,accepted_terms_at:new Date().toISOString(),ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null,school_name:f.kind.value==="school"?f.school_name.value.trim():null,school_code:f.kind.value==="teacher"?(f.school_code.value.trim()||null):null},emailRedirectTo:back}});
+      const r = await sb.auth.signUp({email,password:f.password.value,options:{data:{full_name:f.full_name.value.trim(),account_type:f.kind.value,accepted_terms_at:new Date().toISOString(),ref:storedRef(),pitch:f.kind.value==="affiliate"?f.pitch.value.trim():null,school_name:f.kind.value==="school"?f.school_name.value.trim():null,school_code:f.kind.value==="teacher"?(f.school_code.value.trim()||null):null,birth_year:born?String(born):null},emailRedirectTo:back}});
       error=r.error;
       if(!error && !r.data.session){ A.mode="signin"; A.msg=`We sent a confirmation link to ${email}. Open it, then sign in here.` }
     } else if(A.mode==="forgot"){
@@ -1087,7 +1093,8 @@ studio = function(){
   if(!sb) return `<div class="wrap page"><h2>Teacher studio</h2><div class="notice">Teacher accounts can't be reached right now. Check your connection and reload the page.</div></div>`;
   if(A.recovery) return newPasswordPage();
   if(!A.user){ kindFor("studio","teacher"); return authPage() }
-  const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
+  const unread=(A.contacts||[]).reduce((a,c)=>a+(c.unread||0),0);
+  const who = `<span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${A.teacher?`<a class="btn ghost sm" href="#/messages">Messages${unread?` (${unread} new)`:""}</a>`:""}${esc(A.user.email)} <button class="btn ghost sm" onclick="signOut()">Sign out</button></span>`;
   if(!A.teacher) return `<div class="wrap page"><div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     <div class="notice">${A.staffer?`This is an admin account, so it has no teacher profile. <a href="#/admin">Manage teachers</a>`:A.learner?`This is a ${A.learner.role} account, so it has no teacher studio. To teach, create a separate teacher account with a different email. <a href="#/account">Open my account</a>`:"This account has no teacher profile."}</div></div>`;
   const tabs=[["profile","My profile"],["list","My classes"],["bookings","Bookings"]];
@@ -1097,16 +1104,27 @@ studio = function(){
     <div class="results-head"><h2 style="margin:0">Teacher studio</h2>${who}</div>
     ${statusBanner()}${teacherSchoolBox()}${teacherChecklist()}${teacherLevelBox()}
     <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${TAB===k}" onclick="TAB='${k}';render()">${l}</button>`).join("")}</div>
-    ${TAB==="profile"?teacherPhotoBox()+profileForm()+teacherQualsBox()+teacherDocsBox()+teacherPayBox()+accountSettings():TAB==="list"?(A.teacher.school_id?schoolTeacherClasses():listings()):TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast()+teacherEarnings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
+    ${TAB==="profile"?teacherPhotoBox()+profileForm()+teacherQualsBox()+teacherDocsBox()+teacherPayBox()+accountSettings():TAB==="list"?(A.teacher.school_id?schoolTeacherClasses():listings()):TAB==="bookings"?teacherBookings()+teacherDates()+teacherPast()+teacherRatings()+teacherEarnings():TAB==="plan"?local+planner():TAB==="grades"?local+gradebook():local+resources()}
   </div>`;
 };
 function statusBanner(){
   const s=A.teacher.status;
   return s==="approved" ? `<div class="ok" style="margin:12px 0">Your account is approved. Your profile and classes are public. <a href="#/teacher/${A.teacher.id}">See your public profile</a>
       <div class="small" style="margin-top:6px;overflow-wrap:anywhere">Your own page to share: <a href="${SITE_BASE}teachers/${slugify(A.teacher.full_name,A.teacher.id)}/">${esc(SITE_BASE)}teachers/${slugify(A.teacher.full_name,A.teacher.id)}/</a> (new and changed pages appear within about an hour)</div></div>`
-    : s==="suspended" ? `<div class="notice bad">Your account is suspended, so your profile and classes are hidden. Contact support from the Help page.</div>`
+    : s==="suspended" ? `<div class="notice bad">Your account is suspended, so your profile and classes are hidden.${A.tnote?` <b>Note from SeastackSchool:</b> ${esc(A.tnote)}`:""} Contact support from the Help page.</div>`
     : A.teacher.school_id ? `<div class="notice">You're waiting for your school to approve you. Fill in your profile and add your classes now; students will see them once the school approves you.</div>`
-    : `<div class="notice">Your account is waiting for approval. Fill in your profile and add your classes now; students will see them once you're approved.</div>`;
+    : `<div class="notice">Your account is waiting for approval. Fill in your profile and add your classes now; students will see them once you're approved.
+        ${A.tnote?`<div style="margin-top:8px"><b>SeastackSchool asked for changes:</b> ${esc(A.tnote)}</div>`:""}
+        <div style="margin-top:10px">${A.teacher.review_requested_at?`You asked for a review on ${fmtDay(new Date(A.teacher.review_requested_at))}. We'll look at your profile soon.`:`When your profile is finished, <button class="btn sm" onclick="requestReview()">Send for review</button>`}</div></div>`;
+}
+async function requestReview(){
+  const r = await sb.rpc("teacher_request_review");
+  if(r.error) return toast(r.error.message);
+  await loadMe(); toast("Sent. SeastackSchool will review your profile."); render();
+}
+function teacherRatings(){
+  const rv=reviewsFor(A.teacher.id);
+  return `<h3 style="margin-top:24px">Your ratings</h3>${rv.length?rv.map(r=>`<div class="lesson"><div><span class="stars">${starStr(r.stars)}</span> <b>${esc(r.name||"")}</b>${r.text?`<div class="small" style="white-space:pre-wrap">${esc(r.text)}</div>`:""}</div></div>`).join(""):`<p class="muted small">No ratings yet. Families who finish a lesson with you can rate you.</p>`}`;
 }
 function profileForm(){
   const t=A.teacher, tz = t.timezone==="UTC" && !t.full_name.trim() ? BROWSER_TZ : t.timezone, zones=tzList();
@@ -1137,7 +1155,7 @@ async function saveProfile(f){
     teaches:[...f.querySelectorAll("[name=teaches]:checked")].map(x=>x.value)};
   const r = await sb.from("teachers").update(row).eq("id",A.user.id).select().maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
-  A.teacher=r.data; await loadPublic(); toast("Profile saved"); render();
+  A.teacher=r.data; DRAFTS.proff=null; await loadPublic(); toast("Profile saved"); render();
 }
 function myClassList(){
   if(!A.classes.length) return `<div class="empty" style="margin-bottom:16px">You haven't listed a class yet.</div>`;
@@ -1146,7 +1164,7 @@ function myClassList(){
       <div class="small muted">${modeLabel(c)} · ${esc(c.subject)} · taught in ${esc(c.lang)} · ${c.level} · ${ageLabel(c.ages)} · ${money(c.price)} per lesson · ${x.days.map(d=>DAY3[d]).join(", ")} at ${x.start_time.slice(0,5)} (${esc((A.teacher.timezone||"UTC").replace(/_/g," "))} time) · ${c.mins} min</div>
       <div class="small" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input id="link-${x.id}" value="${esc((c.mode==="in_person"?A.addresses[x.id]:A.links[x.id])||"")}" placeholder="${c.mode==="in_person"?"Address (only people who booked can see it)":"Lesson link (Zoom, Meet…): https://"}" aria-label="${c.mode==="in_person"?"Address":"Lesson link"} for ${esc(c.title)}" style="flex:1;min-width:210px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveLink('${x.id}')">${c.mode==="in_person"?"Save address":"Save link"}</button></div>
       ${A.teacher.status==="approved"?`<div class="small muted" style="margin-top:6px;overflow-wrap:anywhere">This class's own page to share: <a href="${SITE_BASE}classes/${slugify(x.title,x.id)}/">${esc(SITE_BASE)}classes/${slugify(x.title,x.id)}/</a></div>`:""}</div>
-    ${A.teacher.school_id?"":`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.editing='${x.id}';render();$('#editclass')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div>`}</div>` }).join("")}</div>`;
+    ${A.teacher.school_id?"":`<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" onclick="A.editing='${x.id}';DRAFTS.editclass=null;render();$('#editclass')?.scrollIntoView({block:'center'})">Edit</button><button class="btn ghost sm" onclick="removeClass('${x.id}')">${A.removing===x.id?"Confirm remove":"Remove"}</button></div>`}</div>` }).join("")}</div>`;
 }
 addListing = async function(f){
   const days=[...f.querySelectorAll("[name=day]:checked")].map(x=>+x.value);
@@ -1166,7 +1184,8 @@ addListing = async function(f){
     const k = await sb.from("class_links").insert({class_id:r.data.id,url:link||null,address:mode==="in_person"?address:null});
     if(k.error) toast("Class saved, but the lesson link or address could not be saved");
   }
-  await loadMe(); await loadPublic(); toast(savedWords((A.classes.find(c=>c.id===r.data.id)||{}).review_status, "Class saved")); render();
+  DRAFTS.newclass=null; await loadMe(); await loadPublic();
+  toast(A.teacher.status!=="approved" ? "Class saved. It goes public when your account is approved." : savedWords((A.classes.find(c=>c.id===r.data.id)||{}).review_status, "Class saved")); render();
 };
 // Editing a class. While it has upcoming bookings its days, time, length, kind and place are fixed
 // (the database enforces the same rule), so families never find their lesson moved under them.
@@ -1181,7 +1200,7 @@ function classEditForm(){
     <label class="field">Subject${subjectSelect("ed-subject", x.subject)}</label>
     <label class="field">Teaching language<input name="lang" id="ed-lang" maxlength="60" value="${esc(x.language)}"></label>
     <label class="field">Student level<select name="level" id="ed-level">${["Beginner","Intermediate","Advanced"].map(l=>`<option ${l===x.level?"selected":""}>${l}</option>`).join("")}</select></label>
-    <label class="field">Price per lesson (USD)<input name="price" id="ed-price" type="number" min="1" value="${+x.price}"></label>
+    <label class="field">Price per lesson, in US dollars<input name="price" id="ed-price" type="number" min="1" value="${+x.price}"></label>
     <label class="field">Kind of class<select name="type" id="ed-type" ${dis} onchange="$('#ed-capwrap').hidden=this.value==='private'"><option value="private" ${x.type==="private"?"selected":""}>Private lesson</option><option value="group" ${x.type==="group"?"selected":""}>Small group class</option></select></label>
     <label class="field" id="ed-capwrap" ${x.type==="private"?"hidden":""}>Maximum class size<input name="cap" id="ed-cap" type="number" min="2" max="50" value="${x.type==="group"?x.capacity:6}"></label>
     <label class="field">Youngest age<input name="a0" id="ed-a0" type="number" min="3" value="${x.age_min}"></label>
@@ -1192,7 +1211,7 @@ function classEditForm(){
     <label class="field">Start time (${zone} time)<input name="time" id="ed-time" type="time" value="${x.start_time.slice(0,5)}" ${dis}></label>
     <label class="field">Lesson length (minutes)<input name="mins" id="ed-mins" type="number" min="15" step="5" value="${x.duration_min}" ${dis}></label>
     <p class="small muted" style="grid-column:1/-1;margin:0">The lesson link or address is changed in the class row below. Renaming a class changes the address of its public page.</p>
-    <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Save changes</button><button type="button" class="btn ghost" onclick="A.editing=null;render()">Cancel</button></div>
+    <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Save changes</button><button type="button" class="btn ghost" onclick="A.editing=null;DRAFTS.editclass=null;render()">Cancel</button></div>
   </form>`;
 }
 async function saveClass(f){
@@ -1214,7 +1233,7 @@ async function saveClass(f){
   }
   const r = await sb.from("classes").update(row).eq("id",x.id).select("id").maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "The class could not be saved");
-  A.editing=null; await loadMe(); await loadPublic(); toast(savedWords((A.classes.find(c=>c.id===r.data.id)||{}).review_status, "Class updated")); render();
+  A.editing=null; DRAFTS.editclass=null; await loadMe(); await loadPublic(); toast(savedWords((A.classes.find(c=>c.id===r.data.id)||{}).review_status, "Class updated")); render();
 }
 async function removeClass(id){
   if(A.removing!==id){ A.removing=id; render(); return }
@@ -1236,11 +1255,11 @@ async function saveLink(id){
 }
 function teacherBookings(){
   const ids=new Set(A.classes.map(c=>c.id)), now=Date.now();
-  const up=A.bookings.filter(b=>ids.has(b.class_id) && b.status==="booked" && Date.parse(b.starts_at)+90*6e4>now);
+  const up=A.bookings.filter(b=>ids.has(b.class_id) && b.status==="booked" && lessonEnd(b)>now);
   if(!up.length) return `<div class="empty">No upcoming bookings yet. When a student or parent books one of your classes, it appears here.</div>`;
   const groups={};
   up.forEach(b=>{ const k=b.class_id+"@"+Date.parse(b.starts_at); (groups[k] = groups[k] || []).push(b) });
-  return `<p class="muted">Times are shown in your time zone (${esc(TZ)}).</p>` + Object.keys(groups).sort((x,y)=>x.split("@")[1]-y.split("@")[1]).map(k=>{
+  return `<p class="muted">Times are shown in ${esc(TZ.replace(/_/g," "))} time${A.teacher.timezone && A.teacher.timezone!==TZ?`. Your class times are set in your profile time zone, ${esc(A.teacher.timezone.replace(/_/g," "))}`:""}.</p>` + Object.keys(groups).sort((x,y)=>x.split("@")[1]-y.split("@")[1]).map(k=>{
     const list=groups[k], c=A.classes.find(x=>x.id===list[0].class_id), when=new Date(list[0].starts_at);
     return `<div class="box"><div class="results-head"><h3 style="margin:0">${esc(c.title)}</h3><span class="small muted">${fmtDay(when)}, ${fmtTime(when)} · ${list.length} of ${c.capacity} booked</span></div>
       ${A.links[c.id] || c.mode==="in_person"?"":`<p class="small" style="color:var(--rose);margin:0 0 6px">Add a lesson link for this class under My classes so students can join.</p>`}
@@ -1347,19 +1366,20 @@ function adminPage(){
         <div class="acts"><button class="btn sm ghost" onclick="setIdentity('${r.id}',${!r.identity_checked_at})">${r.identity_checked_at?"Remove identity check":"Mark identity checked"}</button></div>
         ${adminQuals(r.id)}</td>
       <td class="small">${new Date(r.created_at).toLocaleDateString()}</td>
-      <td>${pill(r.status)}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
-      <td><input id="note-${r.id}" aria-label="Note for ${esc(r.full_name)}" placeholder="Note (optional)" maxlength="1000">
-        <div class="acts">${r.status==="approved"?act(r.id,"suspended","Suspend",true):r.status==="suspended"?act(r.id,"approved","Restore"):act(r.id,"approved","Approve")+act(r.id,"suspended","Suspend",true)}</div></td>
+      <td>${pill(r.status)}${r.review_requested_at?`<div class="small" style="margin-top:4px"><span class="tag ok">Asked for review ${new Date(r.review_requested_at).toLocaleDateString()}</span></div>`:""}${r.last_note?`<div class="small muted" style="margin-top:4px">Note: ${esc(r.last_note)}</div>`:""}</td>
+      <td><input id="note-${r.id}" aria-label="Note for ${esc(r.full_name)}" placeholder="Note (the teacher sees it)" maxlength="1000">
+        <div class="acts">${r.status==="approved"?act(r.id,"suspended","Suspend",true):r.status==="suspended"?act(r.id,"approved","Restore"):act(r.id,"approved","Approve")+act(r.id,"pending","Ask for changes",true)+act(r.id,"suspended","Suspend",true)}</div></td>
     </tr>`).join("")}</tbody></table></div>`
     :`<div class="empty">${rows.length?"No teachers in this list.":"No teachers have signed up yet. When one does, they appear here waiting for approval."}</div>`}
   </div>`;
 }
 async function setStatus(id,status){
   const note=$("#note-"+id)?.value.trim()||null;
+  if(status==="pending" && !note) return toast("Write in the note box what the teacher needs to change");
   const r = await sb.rpc("admin_set_teacher_status",{p_teacher_id:id,p_status:status,p_note:note});
   if(r.error) return toast(r.error.message);
   await loadAdmin(); await loadPublic();
-  toast(status==="approved"?"Teacher approved":"Teacher suspended"); render();
+  toast(status==="approved"?"Teacher approved":status==="pending"?"Sent to the teacher":"Teacher suspended"); render();
 }
 
 function adminHead(){
@@ -1447,6 +1467,7 @@ function accountPage(){
         <label class="field" style="grid-column:1/-1">Your time zone (lesson times are shown in it)<select name="timezone" id="ac-tz">${(z=>tzList().concat(tzList().includes(z)?[]:[z]).map(o=>`<option value="${esc(o)}" ${o===z?"selected":""}>${esc(o.replace(/_/g," "))}</option>`).join(""))(L.timezone||TZ)}</select></label>
         <label class="field" style="grid-column:1/-1">Languages you speak, separated by commas<input name="languages" id="ac-langs" value="${esc((L.languages||[]).join(", "))}" placeholder="English, French"></label>
         <label class="field" style="grid-column:1/-1">${parent?"What you'd like your children to learn":"What you want to learn"}<textarea name="goals" id="ac-goals" rows="2" maxlength="1000">${esc(L.goals||"")}</textarea></label>
+        ${parent?"":L.birth_year?`<p class="small muted" style="grid-column:1/-1;margin:0">Year of birth: <b>${L.birth_year}</b>. It is used to check that classes fit your age, and can't be changed here.</p>`:`<label class="field" style="grid-column:1/-1">Year of birth (needed before you book; it can't be changed later)<input name="birth_year" id="ac-birth" type="number" inputmode="numeric" min="1900" max="${new Date().getFullYear()-13}" placeholder="e.g. ${new Date().getFullYear()-16}"></label>`}
         ${parent?"":`<label class="field" style="grid-column:1/-1">Your level (school grade, college or university, working adult)<input name="education_level" id="ac-level" maxlength="120" value="${esc(L.education_level||"")}" placeholder="e.g. Grade 10, or university student"></label>
         <label class="field" style="grid-column:1/-1">About you (what you study or do, and what you already know)<textarea name="about" id="ac-about" rows="2" maxlength="1000">${esc(L.about||"")}</textarea></label>
         <label class="field" style="grid-column:1/-1">Anything else your teachers should know (optional)<textarea name="note" id="ac-note" rows="2" maxlength="500">${esc(L.note_for_teachers||"")}</textarea></label>`}
@@ -1461,12 +1482,12 @@ function accountPage(){
 }
 function familyBox(){
   return `<div class="box"><h3>My children</h3>
-    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for. The school grade and note are optional, and are shown only to the teachers of the classes you book for that child.</p>
-    ${A.children.length?A.children.map(k=>`<div class="lesson"><div style="flex:1;min-width:200px"><b>${esc(k.first_name)}</b>, age ${k.age}
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="cgrade-${k.id}" value="${esc(k.grade||"")}" maxlength="80" placeholder="School grade or level" aria-label="School grade or level of ${esc(k.first_name)}" style="flex:0 1 170px;min-width:130px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><input id="cnote-${k.id}" value="${esc(k.note||"")}" maxlength="300" placeholder="Note for teachers (optional)" aria-label="Note for teachers about ${esc(k.first_name)}" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveChildNote('${k.id}')">Save</button></div></div><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?"Confirm remove":"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
+    <p class="muted small">Children under 13 don't need their own account. Add them here, and when you book you choose which child the lesson is for. Their age is worked out from the year of birth, so it goes up by itself. The school grade and note are optional, and are shown only to the teachers of the classes you book for that child. Keep the note to learning needs: no school name, address or contact details.</p>
+    ${A.children.length?A.children.map(k=>`<div class="lesson"><div style="flex:1;min-width:200px"><b>${esc(k.first_name)}</b>, age ${kidAge(k)}${k.birth_year?` (born ${k.birth_year})`:""}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input id="cgrade-${k.id}" value="${esc(k.grade||"")}" maxlength="80" placeholder="School grade or level" aria-label="School grade or level of ${esc(k.first_name)}" style="flex:0 1 170px;min-width:130px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><input id="cnote-${k.id}" value="${esc(k.note||"")}" maxlength="300" placeholder="Learning needs only: no school name, address or contact details" aria-label="Note for teachers about ${esc(k.first_name)}" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"><button class="btn ghost sm" onclick="saveChildNote('${k.id}')">Save</button></div></div><button class="btn ghost sm" onclick="dropChild('${k.id}')">${A.removingChild===k.id?(n=>n?`Confirm: remove and cancel ${n} ${n===1?"lesson":"lessons"}`:"Confirm remove")(kidUpcoming(k.id)):"Remove"}</button></div>`).join(""):`<div class="empty" style="margin-bottom:12px">No children added yet.</div>`}
     <form class="row" id="childf" novalidate onsubmit="event.preventDefault();addChild(this)">
       <label class="field">Child's first name<input name="n" id="ch-name" maxlength="60"></label>
-      <label class="field">Age<input name="a" id="ch-age" type="number" min="3" max="17"></label>
+      <label class="field">Year of birth<input name="a" id="ch-born" type="number" inputmode="numeric" min="${new Date().getFullYear()-17}" max="${new Date().getFullYear()-3}" placeholder="e.g. ${new Date().getFullYear()-9}"></label>
       <label class="field">School grade or level (optional)<input name="g" id="ch-grade" maxlength="80" placeholder="e.g. Grade 4"></label>
       <button class="btn sm" style="align-self:end">Add child</button>
     </form></div>`;
@@ -1478,19 +1499,23 @@ async function saveLearner(f){
     languages:f.languages.value.split(",").map(s=>s.trim()).filter(Boolean).slice(0,12),goals:f.goals.value.trim()};
   if(f.note) row.note_for_teachers=f.note.value.trim();
   if(f.education_level){ row.education_level=f.education_level.value.trim(); row.about=f.about.value.trim() }
+  if(f.birth_year && f.birth_year.value){ const by=+f.birth_year.value, yr=new Date().getFullYear();
+    if(!(by>=1900 && by<=yr)) return toast("Enter your year of birth, like "+(yr-16));
+    if(yr-by<13) return toast("Student accounts are for ages 13 and over. A parent account books lessons for younger children.");
+    row.birth_year=by }
   const r = await sb.from("learners").update(row).eq("id",A.user.id).select().maybeSingle();
   if(r.error || !r.data) return toast(r.error?.message || "Your profile could not be saved");
-  A.learner=r.data;
+  A.learner=r.data; DRAFTS.acctf=null;
   // the saved time zone takes effect now, on this device too
   try{ localStorage.removeItem("ss:tz") }catch(e){}
   if(row.timezone){ TZ=row.timezone; document.querySelectorAll("select.tzpick").forEach(s=>{ s.value=TZ }) }
   toast("Profile saved"); render();
 }
 async function addChild(f){
-  const name=f.n.value.trim(), age=+f.a.value;
+  const name=f.n.value.trim(), born=+f.a.value, age=new Date().getFullYear()-born;
   if(!name) return toast("Enter your child's first name");
-  if(!(age>=3 && age<=17)) return toast("Enter an age between 3 and 17");
-  const r = await sb.from("children").insert({parent_id:A.user.id,first_name:name,age,grade:f.g.value.trim()});
+  if(!(age>=3 && age<=17)) return toast("Enter a year of birth for a child aged 3 to 17");
+  const r = await sb.from("children").insert({parent_id:A.user.id,first_name:name,age,birth_year:born,grade:f.g.value.trim()});
   if(r.error) return toast(/up to 10/.test(r.error.message) ? "A parent account can list up to 10 children" : /row-level security/i.test(r.error.message) ? "Your account can't add children right now" : r.error.message);
   await loadMe(); toast("Child added"); render();
 }
@@ -1513,9 +1538,10 @@ async function saveAffiliate(f){
 async function dropChild(id){
   if(A.removingChild!==id){ A.removingChild=id; render(); return }
   A.removingChild=null;
+  const n=kidUpcoming(id);
   const r = await sb.from("children").delete().eq("id",id);
   if(r.error) return toast(r.error.message);
-  await loadMe(); toast("Child removed"); render();
+  await loadMe(); await loadPublic(); toast(n?`Child removed, and ${n} upcoming ${n===1?"lesson":"lessons"} cancelled. The teachers have been told.`:"Child removed"); render();
 }
 // My lessons: a signed-in student or parent manages family in their account, not in this browser.
 const baseLearning = learning;
@@ -1526,20 +1552,35 @@ learning = function(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><a class="btn" href="#/account" onclick="A.mode='signin';A.err='';A.msg='';setTimeout(render,0)">Sign in</a><a class="btn ghost" href="#/account" onclick="A.mode='signup';A.kind='student';A.err='';A.msg='';setTimeout(render,0)">Create a free account</a></div></div></div>`;
   return `<div class="wrap page"><h2>My lessons</h2><div class="notice">${A.teacher?`You're signed in with a teacher account. Bookings in your classes are in the <a href="#/studio">Teacher studio</a>.`:"Lessons are booked from a student or parent account. This account is a different type, so it has no lessons."}</div></div>`;
 };
+function kidAge(k){ return k.birth_year ? new Date().getFullYear()-k.birth_year : k.age }
+function kidUpcoming(id){ return A.bookings.filter(b=>b.child_id===id && b.status==="booked" && Date.parse(b.starts_at)>Date.now()).length }
+function lessonEnd(b){ const c=cls(b.class_id); return Date.parse(b.starts_at)+((c&&c.mins)||60)*6e4+10*6e4 }
+function linkHost(u){ try{ return new URL(u).hostname.replace(/^www\./,"") }catch(e){ return "" } }
+// A calendar file for one lesson, so it shows in the family's own calendar with a reminder.
+function addToCalendar(id){
+  const b=A.bookings.find(x=>x.id===id), c=b&&cls(b.class_id); if(!b||!c) return;
+  const z=d=>new Date(d).toISOString().replace(/[-:]/g,"").replace(/\.\d{3}/,""), t=teacher(c.t);
+  const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//SeastackSchool//EN","BEGIN:VEVENT","UID:"+b.id+"@seastackschool.com","DTSTAMP:"+z(Date.now()),
+    "DTSTART:"+z(b.starts_at),"DTEND:"+z(Date.parse(b.starts_at)+c.mins*6e4),"SUMMARY:"+(c.title+" (SeastackSchool)").replace(/[,;]/g," "),
+    "DESCRIPTION:"+("For "+b.attendee_name+(t?" with "+t.name:"")+". Join or see the address in My lessons: "+SITE_BASE+"#/learning").replace(/[,;]/g," "),
+    "BEGIN:VALARM","TRIGGER:-PT30M","ACTION:DISPLAY","DESCRIPTION:Lesson in 30 minutes","END:VALARM","END:VEVENT","END:VCALENDAR"].join("\r\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([ics],{type:"text/calendar"})); a.download="lesson.ics"; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove() },1000);
+}
 function bookingRow(b, upcoming){
   const c=cls(b.class_id), t=c?teacher(c.t):null, when=new Date(b.starts_at), link=A.links[b.class_id], inPerson=!!c && c.mode==="in_person", addr=A.addresses[b.class_id];
   return `<div class="lesson"><div><b>${c?esc(c.title):"Class no longer listed"}</b>
     <div class="small muted">${fmtDay(when)}, ${fmtTime(when)} (your time)${t?" · with "+esc(t.name):""} · for ${esc(b.attendee_name)}${payNote(b)}</div>
-    ${!upcoming?"":inPerson?`<div class="small">${addr?"Where: "+esc(addr):`In person${c.place?" in "+esc(c.place):""}. The teacher hasn't added the address yet; it will appear here when they do.`}</div>`
+    ${b.status==="cancelled"?`<div class="small muted">${b.cancelled_by===A.user.id?"Cancelled by you":b.cancelled_by&&t&&b.cancelled_by===t.id?"Cancelled by the teacher":"Cancelled by the teacher or SeastackSchool"}${b.cancelled_at?", "+fmtDay(new Date(b.cancelled_at)):""}</div>`:""}
+    ${!upcoming?"":inPerson?`<div class="small">${addr?"Where: "+esc(addr)+" <span class=\"muted\">(shared only with people who booked)</span>":`In person${c.place?" in "+esc(c.place):""}. The teacher hasn't added the address yet; it will appear here when they do. If it's still missing the day before, message the teacher.`}</div>${b.child_id?`<div class="small muted">For a young child, stay nearby during the lesson. Something wrong? Use Report on the teacher's page.</div>`:""}`
       :!link?`<div class="small muted">The teacher hasn't added a lesson link yet. It will appear here when they do.</div>`:""}</div>
-    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link && !inPerson?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer" onclick="recordJoin('${b.id}')">Join lesson</a>`:""}${t?`<a class="btn ghost sm" href="#/messages/${t.id}">Message teacher</a>`:""}<button class="btn ghost sm" onclick="cancelReal('${b.id}')">${A.cancelling===b.id?"Confirm cancel"+refundHint(b):"Cancel"}</button></div>`:(b.status!=="booked" || !t ? ""
+    ${upcoming?`<div style="display:flex;gap:8px;flex-wrap:wrap">${link && !inPerson?`<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer" onclick="recordJoin('${b.id}')">Join lesson</a><span class="small muted" style="align-self:center">opens ${esc(linkHost(link))}</span>`:""}<button class="btn ghost sm" onclick="addToCalendar('${b.id}')">Add to calendar</button>${t?`<a class="btn ghost sm" href="#/messages/${t.id}">Message teacher</a>`:""}${A.cancelling===b.id?`<span class="small" style="align-self:center">Cancel this lesson? The teacher is told.${refundHint(b)}</span><button class="btn sm" onclick="cancelReal('${b.id}')">Yes, cancel</button><button class="btn ghost sm" onclick="A.cancelling=null;render()">Keep it</button>`:`<button class="btn ghost sm" onclick="cancelReal('${b.id}')">Cancel</button>`}</div>`:(b.status!=="booked" || !t ? ""
       : b.attendance!=="no_show" ? `<a class="btn ghost sm" href="#/teacher/${t.id}">Rate this teacher</a>`
       : b.attendance_locked ? `<span class="small muted">Marked as not attended</span>`
       : b.attendance_disputed ? `<span class="small muted">Marked as not attended. Sent to SeastackSchool to review.</span>`
       : `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="small muted">The teacher marked this lesson as not attended.</span><button class="btn ghost sm" onclick="disputeAttendance('${b.id}')">This is wrong</button></div>`)}</div>`;
 }
 function realLessons(){
-  const now=Date.now(), mine=A.bookings.filter(b=>b.learner_id===A.user.id), end=b=>Date.parse(b.starts_at)+90*6e4;
+  const now=Date.now(), mine=A.bookings.filter(b=>b.learner_id===A.user.id), end=lessonEnd;
   const up=mine.filter(b=>b.status==="booked" && end(b)>now), past=mine.filter(b=>b.status==="booked" && end(b)<=now), gone=mine.filter(b=>b.status==="cancelled");
   return `<div class="wrap page"><h2>My lessons</h2>
     ${up.length?up.map(b=>bookingRow(b,true)).join(""):`<div class="empty"><h3>No lessons booked yet</h3><p class="muted">Find a class that fits your week.</p><a class="btn" href="#/classes">Find classes</a></div>`}
@@ -1573,18 +1614,21 @@ function showRealBooking(){
   const c=cls(RB.cid), t=teacher(c.t), body=$("#dlgBody"), x=`<button class="x" onclick="$('#dlg').close()" aria-label="Close">×</button>`;
   if(RB.done){
     body.innerHTML = `<div class="dlg-head"><h3>You're booked</h3>${x}</div>
-      <div class="ok"><b>${esc(c.title)}</b><div>${fmtDay(RB.done.start)}, ${fmtTime(RB.done.start)} (your time) · for ${esc(RB.done.who)}</div></div>
+      <div class="ok"><b>${esc(c.title)}</b><div>${fmtDay(RB.done.start)}, ${fmtTime(RB.done.start)} (your time) · for ${esc(RB.done.who)}${RB.done.extra?`, plus the same time on ${RB.done.extra} more ${RB.done.extra===1?"week":"weeks"}`:""}</div></div>
       <p class="small muted" style="margin-top:12px">Nothing was charged: online payment is not open yet. ${c.mode==="in_person"?`This class is in person${c.place?" in "+esc(c.place):""}. The address is in My lessons once the teacher has added it.`:A.links[c.id]?"The lesson link is in My lessons.":"The teacher hasn't added a lesson link yet. It will appear in My lessons when they do."}</p>
       <div style="display:flex;justify-content:flex-end"><a class="btn" href="#/learning" onclick="$('#dlg').close()">Go to My lessons</a></div>`;
     return;
   }
   const parent=A.learner?.role==="parent";
-  const kids=parent?A.children.filter(k=>k.age>=c.ages[0] && k.age<=c.ages[1]):[];
+  const kids=parent?A.children.filter(k=>kidAge(k)>=c.ages[0] && kidAge(k)<=c.ages[1]):[];
+  const myAge=!parent && A.learner && A.learner.birth_year ? new Date().getFullYear()-A.learner.birth_year : null;
   let block="";   // why this visitor can't book, if they can't
-  if(!A.user) block=`To book this class, sign in or create a free student or parent account.<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/account" onclick="A.mode='signup';A.kind='student';$('#dlg').close()">Create an account</a><a class="btn sm ghost" href="#/account" onclick="A.mode='signin';$('#dlg').close()">Sign in</a></div>`;
+  if(!A.user) block=`To book this class, sign in or create a free student or parent account.<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="#/account" onclick="A.mode='signup';A.kind='${c.ages[1]<13?"parent":"student"}';$('#dlg').close()">Create ${c.ages[1]<13?"a parent":"an"} account</a><a class="btn sm ghost" href="#/account" onclick="A.mode='signin';$('#dlg').close()">Sign in</a></div>`;
   else if(!A.learner) block=`Lessons are booked from a student or parent account. You're signed in with ${A.teacher?"a teacher":A.aff?"an affiliate":A.school?"a school":"the admin"} account.`;
   else if(A.learner.status!=="active") block="This account is suspended, so it can't book lessons.";
   else if(!parent && c.ages[1]<13) block="This class is for children under 13, so it's booked from a parent account.";
+  else if(!parent && !A.learner.birth_year) block=`Add your year of birth in your account first, so we can check this class fits your age. <a href="#/account" onclick="$('#dlg').close()">Open my account</a>`;
+  else if(!parent && (myAge<c.ages[0] || myAge>c.ages[1])) block=`This class is for ${ageLabel(c.ages).toLowerCase()}, so it doesn't fit your age.`;
   else if(parent && !A.children.length) block=`Add your child to your account first. <a href="#/account" onclick="$('#dlg').close()">Open my account</a>`;
   else if(parent && !kids.length) block=`This class is for ${ageLabel(c.ages).toLowerCase()}. None of the children on your account are that age.`;
   if(!block && PAY.enabled && !PAY.payable.has(c.t)) block=(t.school?"This school":"This teacher")+" isn't set up to take paid bookings yet. Please check back soon.";
@@ -1596,9 +1640,11 @@ function showRealBooking(){
     ${t.tz?`<p class="small muted" style="margin:6px 0 0">The teacher's time zone is ${esc(t.tz.replace(/_/g," "))}.</p>`:""}
     <div class="slots" role="group" aria-label="Choose a time">${ss.map(s=>`<button class="slot" aria-pressed="${RB.key===s.key}" ${s.left?"":"disabled"} onclick="RB.key='${s.key}';RB.err='';showRealBooking()"><b>${fmtDay(s.start)}</b>${fmtTime(s.start)}<div class="small ${s.left<=2&&s.left?"places low":"muted"}">${s.left?(c.type==="private"?"Open":s.left+" of "+c.cap+" places left"):"Full"}</div></button>`).join("") || "<p>No open times in the next two weeks.</p>"}</div>
     ${block?`<div class="notice">${block}</div>`:`
-    ${parent?`<label class="field" style="margin:12px 0">Which child is this lesson for?<select id="rb-child" onchange="RB.child=this.value">${kids.map(k=>`<option value="${k.id}" ${RB.child===k.id?"selected":""}>${esc(k.first_name)}, ${k.age}</option>`).join("")}</select></label>`
+    ${parent?`<label class="field" style="margin:12px 0">Which child is this lesson for?<select id="rb-child" onchange="RB.child=this.value">${kids.map(k=>`<option value="${k.id}" ${RB.child===k.id?"selected":""}>${esc(k.first_name)}, ${kidAge(k)}</option>`).join("")}</select></label>`
             :`<p class="small" style="margin:12px 0">Booking for <b>${esc(A.learner.full_name||"you")}</b>.</p>`}
-    <p class="small muted">${PAY.enabled?`You pay ${money(c.price)} on Stripe's secure page, then the lesson is booked. Full refund if you cancel ${PAY.hours} hours or more before the lesson, or if the teacher cancels.`:"Online payment is not open yet, so nothing is charged when you book."}</p>
+    ${parent && kids.some(k=>kidAge(k)<13) && (c.mode==="in_person" || c.ages[1]>=18)?`<div class="notice" style="margin:0 0 10px"><b>For young children:</b> ${c.mode==="in_person"?"this class is in person. Stay with your child or nearby, and make sure the place is one you're comfortable with. ":""}${c.ages[1]>=18?"This class also takes adults, so your child may be in a group with grown-ups. ":""}"Identity checked" means SeastackSchool saw the teacher's ID; it is not a background check. If anything worries you, use Report on the teacher's page.</div>`:""}
+    ${!PAY.enabled && ss.filter(s=>s.left && s.key!==RB.key && new Date(s.start).getDay()===new Date(+(RB.key||"@0").split("@")[1]).getDay() && fmtTime(s.start)===fmtTime(new Date(+(RB.key||"@0").split("@")[1]))).length?`<label class="small" style="display:flex;gap:8px;align-items:center;margin:0 0 8px"><input type="checkbox" id="rb-weekly" ${RB.weekly?"checked":""} onchange="RB.weekly=this.checked"> Also book this time every week (all open dates shown above)</label>`:""}
+    <p class="small muted">${PAY.enabled?`You pay ${money(c.price)} on Stripe's secure page, then the lesson is booked.`:"Online payment is not open yet, so nothing is charged when you book."} You can cancel from My lessons until the lesson starts, and the teacher is told. ${PAY.enabled?`Full refund if you cancel ${PAY.hours} hours or more before, or if the teacher cancels.`:`Once payment opens, lessons cancelled ${PAY.hours||24} hours or more before are fully refunded.`}</p>
     <div class="err" id="rberr">${esc(RB.err||"")}</div>
     <div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="btn" id="rbbtn" ${RB.key && ss.some(s=>s.key===RB.key&&s.left)?"":"disabled"} onclick="bookReal()">${PAY.enabled?"Pay "+money(c.price)+" and book":"Book this lesson"}</button></div>`}`;
 }
@@ -1612,10 +1658,18 @@ async function bookReal(){
   }
   const r = await sb.rpc("book_class",{p_class_id:c.id,p_starts_at:new Date(start).toISOString(),p_child_id:parent?RB.child:null});
   if(r.error){ RB.err=r.error.message; await loadPublic(); render(); showRealBooking(); return }
+  let extra=0;
+  if(RB.weekly){   // the same weekday and time on every other open date shown
+    const d0=new Date(start);
+    for(const s of sessions(c).filter(s=>s.left && +s.start!==start && new Date(s.start).getDay()===d0.getDay() && fmtTime(s.start)===fmtTime(d0))){
+      const x = await sb.rpc("book_class",{p_class_id:c.id,p_starts_at:new Date(s.start).toISOString(),p_child_id:parent?RB.child:null});
+      if(!x.error) extra++;
+    }
+  }
   notifyBooking(r.data,"booked");
   const who = parent ? (A.children.find(k=>k.id===RB.child)?.first_name||"your child") : (A.learner.full_name||"you");
   await loadMe(); await loadPublic();
-  RB.done={start:new Date(start),who}; toast("Lesson booked"); render(); showRealBooking();
+  RB.done={start:new Date(start),who,extra}; toast(extra?`${extra+1} lessons booked`:"Lesson booked"); render(); showRealBooking();
 }
 
 /* ---------- your own account: getting started (teachers), change password, delete account ---------- */
@@ -1640,7 +1694,7 @@ function accountSettings(){
   const what = A.teacher ? "your profile, classes, documents and ratings"
     : A.school ? "your school's page and documents. Your teachers keep their own accounts but go back to waiting for approval"
     : A.aff ? "your affiliate link and its history"
-    : A.learner && A.learner.role==="parent" ? "your children's details, your bookings and your ratings" : "your bookings and your ratings";
+    : A.learner && A.learner.role==="parent" ? "your children's details, your bookings and your ratings. Upcoming lessons are cancelled first and their teachers are told" : "your bookings and your ratings. Upcoming lessons are cancelled first and their teachers are told";
   return `<details style="margin-top:16px"><summary>Password and account</summary>
     <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="alert-email" ${A.alertEmail?"checked":""} onchange="setAlertEmail(this.checked)" style="margin-top:4px"><span><b>Email me alerts</b><span class="small muted" style="display:block">Bookings, cancellations, messages, lesson reminders and decisions about your account. Alerts always show on the site under Alerts.</span></span></label>
     <form id="pwf" novalidate onsubmit="event.preventDefault();changePassword(this)" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
@@ -1925,7 +1979,7 @@ function privacyPage(){
     ["Who can see what",["Public: an approved teacher's profile, classes and ratings, and an approved school's page. A rating shows the reviewer's first name only.","A teacher sees the name on each booking in their classes (a child's first name, or a student's own name) and what you chose to tell teachers: a student's level, country, languages, what they want to learn, what they wrote about themselves and their note; for a child, the parent's name, country and languages, what the parent wants the child to learn, and the child's school grade and note. A teacher does not see your email, your city or your other bookings. A school sees the names on its teachers' bookings.","Student, parent and affiliate profiles are not public.","A message is seen by the two people in the conversation. SeastackSchool staff can read messages when needed for safety. If the teacher belongs to a school, that school can read the messages sent since the teacher joined it.","A teacher's profile photo is public once the teacher is approved.","Lesson links and in-person addresses are shown only to people who booked that class.","Identity documents and school documents can be opened only by the account that uploaded them and by SeastackSchool. A school can open the qualification documents of its own teachers, but not their identity documents.","Affiliates see how many people signed up through their link, never their names or emails.","SeastackSchool staff who manage the site can see account emails, bookings, reports and messages in order to run it."]],
     ["Who we share it with",["We do not sell personal information. The site relies on service providers that store or carry data for us: a database and sign-in provider, a website host, and an email provider. They may only use the data to provide those services."]],
     ["Emails",["We email you to confirm your address, to reset your password, and about your bookings."]],
-    ["How long we keep it",["We keep your information while your account exists. Documents stay until you remove them. To delete your account and its data, write to us from the Help page; some records may be kept where the law requires it."]],
+    ["How long we keep it",["We keep your information while your account exists. Documents stay until you remove them. To delete your account and its data, use Delete my account under Account, Password and account; some records may be kept where the law requires it."]],
     ["Children",["Children under 13 use SeastackSchool only through a parent's account. A parent can remove a child from their account at any time."]],
     ["Your choices",["You can edit your profile, remove children, remove documents and cancel bookings from your account. For anything else, including a copy of your data or a correction, write to us from the Help page."]]
   ]);
@@ -2349,8 +2403,11 @@ render = function(){
   // #/class/<id> is where a class's own page sends people: show the class list and open that class's booking.
   if(r==="class"){ A.pendingClass = location.hash.split("/")[2] || null; history.replaceState(null,"",location.pathname+location.search+"#/classes"); r="classes" }
   if(["admin","account","partner","myschool","school","schools","terms","privacy","messages","alerts","app"].includes(r)){
+    const h=location.hash.replace(/^#\/?/,"");
+    if(render._route!==h){ Object.keys(DRAFTS).forEach(k=>DRAFTS[k]=null); render._route=h } else keepDrafts();
     $("#app").innerHTML = r==="app" ? appPage() : r==="alerts" ? alertsPage() : r==="messages" ? messagesPage(location.hash.split("/")[2]) : r==="terms" ? termsPage() : r==="privacy" ? privacyPage() : r==="admin" ? adminPage() : r==="partner" ? partnerPage() : r==="myschool" ? schoolDash() : r==="school" ? schoolPage(location.hash.split("/")[2]) : r==="schools" ? schoolsList() : accountPage();
     document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
+    putDrafts();
   } else baseRender();
   fieldHints();
   trackVisit(r);
@@ -2471,6 +2528,7 @@ function tabBar(){
   if(A.teacher) items.push(["teach","My classes","#/studio",["studio"]]); else items.push(["lessons","My lessons","#/learning",["learning"]]);
   if(A.teacher || A.learner) items.push(["chat","Messages","#/messages",["messages"],um]);
   if(A.user) items.push(["bell","Alerts","#/alerts",["alerts"],un]);
+  if(!A.user) items.push(["teach","Teach","#/studio",["studio"]]);   // the way in for teachers on phones
   items.push(["me", A.user ? (A.staffer?"Admin":A.school?"School":A.aff?"Affiliate":"Account") : "Sign in", A.teacher ? "#/account" : home, A.teacher?["account"]:["account","admin","partner","myschool"]]);
   b.innerHTML = items.map(([ic,label,href,routes,n])=>`<a href="${href}" class="${routes.includes(r)?"on":""}" ${routes.includes(r)?'aria-current="page"':""}><svg viewBox="0 0 24 24" aria-hidden="true">${TAB_ICONS[ic]}</svg>${label}${n?`<span class="n">${n>9?"9+":n}</span>`:""}</a>`).join("");
 }

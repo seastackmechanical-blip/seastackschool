@@ -359,7 +359,8 @@ const fmtDay = d => d.toLocaleDateString(undefined,{weekday:"short",month:"short
 const fmtTime = d => d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit",timeZone:TZ});
 const money = n => "$" + n.toFixed(0);
 function store(k, v){ try{ if(v===undefined){ const r=localStorage.getItem("ec:"+k); return r?JSON.parse(r):null } localStorage.setItem("ec:"+k, JSON.stringify(v)) }catch(e){ return null } }
-function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),2600) }
+function toast(msg){ msg=String(msg||""); if(/row-level security|violates|permission denied|JWT|PGRST|duplicate key|null value/i.test(msg)) msg="That didn't work. Reload the page and try again; if it keeps happening, write to us from the Help page.";
+  const t=$("#toast"); t.textContent=msg; t.classList.add("show"); t.onclick=()=>t.classList.remove("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),Math.max(2600,Math.min(9000,msg.length*70))) }
 const uid = () => Math.random().toString(36).slice(2,9);
 
 /* ---------- seed data ---------- */
@@ -778,8 +779,8 @@ function listings(){
     <label class="field">Subject${typeof subjectSelect==="function"?subjectSelect("nc-subject",""):`<input name="subject" id="nc-subject" required>`}</label>
     <label class="field">Teaching language<input name="lang" id="nc-lang" value="English" required></label>
     <label class="field">Student level<select name="level" id="nc-level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></label>
-    <label class="field">Price per lesson (USD)<input name="price" id="nc-price" type="number" min="1" value="20" required></label>
-    <label class="field" id="nc-capwrap" hidden>Maximum class size<input name="cap" id="nc-cap" type="number" min="2" max="12" value="6"></label>
+    <label class="field">Price per lesson, in US dollars<input name="price" id="nc-price" type="number" min="1" value="20" required></label>
+    <label class="field" id="nc-capwrap" hidden>Maximum class size<input name="cap" id="nc-cap" type="number" min="2" max="50" value="6"></label>
     <label class="field">Youngest age<input name="a0" id="nc-a0" type="number" min="3" value="8"></label>
     <label class="field">Oldest age<input name="a1" id="nc-a1" type="number" min="3" value="12"></label>
     <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Schedule: which days?</legend><div class="chips">
@@ -790,7 +791,7 @@ function listings(){
     <label class="field" id="nc-linkwrap" style="grid-column:1/-1">Lesson link, such as Zoom or Google Meet (optional; only people who booked can see it)<input name="link" id="nc-link" placeholder="https://"></label>
     <label class="field" id="nc-placewrap" hidden>City or area (public)<input name="place" id="nc-place" maxlength="120" placeholder="e.g. Lagos, Ikeja"></label>
     <label class="field" id="nc-addrwrap" style="grid-column:1/-1" hidden>Address (optional; only people who booked can see it)<input name="address" id="nc-address" maxlength="400"></label>
-    <button class="btn" style="grid-column:1/-1;justify-self:start">Publish class</button>
+    <button class="btn" style="grid-column:1/-1;justify-self:start">Save class</button>
   </form>`;
 }
 function classModeFields(v){ $("#nc-linkwrap").hidden = v!=="online"; $("#nc-placewrap").hidden = $("#nc-addrwrap").hidden = v!=="in_person" }
@@ -831,12 +832,17 @@ function help(){
 
 /* ---------- router ---------- */
 function setRole(r){ S.role=r; $("#role").value=r; save(); toast("Viewing as "+r); if(!$("#dlg").open) render() }
+const DRAFTS={};
+function keepDrafts(){ ["proff","newclass","editclass","acctf"].forEach(id=>{ const f=document.getElementById(id); if(!f) return; const v={}; f.querySelectorAll("input,select,textarea").forEach((e,i)=>{ const k=(e.id||e.name||"")+"#"+i; v[k]=e.type==="checkbox"||e.type==="radio"?e.checked:e.value }); DRAFTS[id]=v }) }
+function putDrafts(){ Object.keys(DRAFTS).forEach(id=>{ const v=DRAFTS[id], f=document.getElementById(id); if(!v||!f) return; f.querySelectorAll("input,select,textarea").forEach((e,i)=>{ const k=(e.id||e.name||"")+"#"+i; if(!(k in v) || e.disabled) return; if(e.type==="checkbox"||e.type==="radio") e.checked=v[k]; else e.value=v[k] }) }) }
 function render(){
   const h=location.hash.replace(/^#\/?/,""), [r,arg]=h.split("/");
   const app=$("#app");
+  if(render._route!==h){ Object.keys(DRAFTS).forEach(k=>DRAFTS[k]=null); render._route=h } else keepDrafts();
   app.innerHTML = r==="classes"?browse(): r==="teacher"?profile(arg): r==="learning"?learning(): r==="studio"?studio(): r==="help"?help(): home();
   document.querySelectorAll("nav.main a").forEach(a=>a.classList.toggle("on",a.dataset.r===r));
   if(r==="classes") renderResults();
+  putDrafts();
   watchArt();
 }
 window.addEventListener("hashchange",()=>{render();window.scrollTo(0,0)});
@@ -845,7 +851,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=43"></script>
+<script src="accounts.js?v=44"></script>
 
 </body>
 </html>
