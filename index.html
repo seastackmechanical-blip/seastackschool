@@ -612,7 +612,7 @@ function renderResults(){
   el.innerHTML = `<div class="results-head"><h2 style="margin:0">${list.length} ${list.length===1?"class":"classes"}</h2><span class="small muted" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label style="display:flex;gap:6px;align-items:center">Sort by <select aria-label="Sort classes" onchange="S.filters.sort=this.value;renderResults()">${SORTS.map(([v,l])=>`<option value="${v}" ${(S.filters.sort||"")===v?"selected":""}>${l}</option>`).join("")}</select></label>Times in ${esc(TZ)}</span></div>
   <p class="notice" style="margin-top:0">Every teacher here has been approved by SeastackSchool. Classes can be booked with a free student or parent account.<span class="paynote"> Online payment is not open yet.</span></p>
   ${list.length? `<div class="list">${list.map(card).join("")}</div>` :
-   `<div class="empty"><h3>No classes match these filters</h3><p class="muted">Try removing the age or time filter, or search a broader subject.</p></div>`}`;
+   ((typeof A!=="undefined"&&!A.ready)?`<div class="empty"><p class="muted">Loading classes…</p></div>`:`<div class="empty"><h3>No classes match these filters</h3><p class="muted">Try removing the age or time filter, or search a broader subject.</p></div>`)}`;
 }
 function card(c){
   const t=teacher(c.t), ss=sessions(c), nx=ss.find(s=>s.left>0);
@@ -635,7 +635,7 @@ function card(c){
 }
 
 function profile(id){
-  const t=teacher(id); if(!t) return `<div class="wrap page"><h2>Teacher not found</h2><a href="#/classes">Browse classes</a></div>`;
+  const t=teacher(id); if(!t) return (typeof A!=="undefined"&&!A.ready)?`<div class="wrap page"><p class="muted">Loading…</p></div>`:`<div class="wrap page"><h2>Teacher not found</h2><a href="#/classes">Browse classes</a></div>`;
   const rv=reviewsFor(id), booked=S.bookings.some(b=>cls(b.cid)?.t===id);
   return `<div class="wrap profile">
     <div class="profile-head">
@@ -845,7 +845,7 @@ $("#tzpick").innerHTML=tzOptions();
 $("#dlg").addEventListener("close",()=>{ if(BK.step==="done") render() });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="accounts.js?v=41"></script>
+<script src="accounts.js?v=42"></script>
 
 </body>
 </html>
