@@ -299,7 +299,7 @@ html[data-art-paused="true"] .art-illustration{--mx:0!important;--my:0!important
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="SeastackSchool">
-<style>.logo .logomark{width:34px;height:34px;border-radius:9px;display:block;flex:none}.seal{width:84px;height:84px;border-radius:20px;flex:none}</style>
+<style>.logo .logomark{width:34px;height:34px;border-radius:9px;display:block;flex:none}.seal{width:84px;height:84px;border-radius:20px;flex:none}@media(max-width:400px){header.top .logo{font-size:23px;gap:8px}header.top .logo .logomark{width:30px;height:30px}header.top .wrap{gap:10px}}</style>
 </head>
 <body>
 <a class="sr" href="#app">Skip to content</a>
@@ -648,7 +648,7 @@ function profile(id){
     </div>
     <div class="cols">
       <div>
-        <div class="box"><h3>About me</h3><p>${esc(t.intro)}</p><h3>Experience</h3><p>${esc(t.exp)}</p>${teacherMore(t)}
+        <div class="box">${t.intro?`<h3>About me</h3><p>${esc(t.intro)}</p>`:""}${t.exp?`<h3>Experience</h3><p>${esc(t.exp)}</p>`:""}${teacherMore(t)}
           <h3>Teaching languages</h3><div class="chips">${t.langs.map(l=>`<span class="chip">${esc(l)}</span>`).join("")}</div></div>
         <h3>Classes</h3><div class="list">${allClasses().filter(c=>c.t===id).map(card).join("")}</div>
       </div>
