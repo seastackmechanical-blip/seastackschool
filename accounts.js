@@ -62,7 +62,7 @@ function attendeeCard(b){
     (n.languages||[]).length?"Speaks: "+esc(n.languages.join(", ")):"", n.goals?"Wants to learn: "+esc(n.goals):"", n.about?"About: "+esc(n.about):"", n.note?"Note for you: "+esc(n.note):""].filter(Boolean);
   return bits.map(x=>`<div class="small muted" style="margin-top:2px">${x}</div>`).join("");
 }
-function ratingLabel(tid){ return reviewsFor(tid).length ? `<span class="stars">★</span> ${rating(tid).toFixed(1)}` : `<span class="muted">New</span>` }
+function ratingLabel(tid){ return reviewsFor(tid).length ? `<span class="stars">★</span> ${rating(tid).toFixed(1)}` : (teacher(tid)||{}).real ? "" : `<span class="muted">New</span>` }
 function tzOffset(tz){
   try{ const d=new Date(); return Math.round((new Date(d.toLocaleString("en-US",{timeZone:tz})) - new Date(d.toLocaleString("en-US",{timeZone:"UTC"})))/9e5)/4 }
   catch(e){ return 0 }
